@@ -40,7 +40,7 @@ test('#760 - broadcastAndWait', t => {
         opcode: 'event_whenbroadcastreceived',
         next: null,
         parent: null,
-        shadow: true,
+        shadow: false,
         topLevel: true,
         x: 0,
         y: 0
