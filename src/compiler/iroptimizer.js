@@ -81,8 +81,8 @@ class TypeState {
      */
     or (other) {
         return this.mutate(other, varId => {
-            const thisType = this.variables[varId] ?? InputType.ANY;
-            const otherType = other.variables[varId] ?? InputType.ANY;
+            const thisType = this.variables[varId] !== undefined && this.variables[varId] !== null ? this.variables[varId] : InputType.ANY;
+            const otherType = other.variables[varId] !== undefined && other.variables[varId] !== null ? other.variables[varId] : InputType.ANY;
             return thisType | otherType;
         });
     }

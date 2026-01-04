@@ -10,7 +10,7 @@ class CompatibilityLayerBlockUtility extends BlockUtility {
     }
 
     get stackFrame () {
-        return this.thread?.compatibilityStackFrame;
+        return this.thread && this.thread.compatibilityStackFrame;
     }
 
     startBranch (branchNumber, isLoop) {
