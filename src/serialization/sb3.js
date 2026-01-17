@@ -278,19 +278,30 @@ const compressInputTree = function (block, blocks) {
 
 /**
  * Get sanitized non-core extension ID for a given sb3 opcode.
+ *
  * Note that this should never return a URL. If in the future the SB3 loader supports loading extensions by URL, this
  * ID should be used to (for example) look up the extension's full URL from a table in the SB3's JSON.
  * @param {!string} opcode The opcode to examine for extension.
+ * @param {Runtime} runtime - The runtime to check for extension registration
  * @return {?string} The extension ID, if it exists and is not a core extension.
  */
-const getExtensionIdForOpcode = function (opcode) {
+const getExtensionIdForOpcode = function (opcode, runtime) {
     // Allowed ID characters are those matching the regular expression [\w-]: A-Z, a-z, 0-9, and hyphen ("-").
     const index = opcode.indexOf('_');
     const forbiddenSymbols = /[^\w-]/g;
     const prefix = opcode.substring(0, index).replace(forbiddenSymbols, '-');
-    if (CORE_EXTENSIONS.indexOf(prefix) === -1) {
-        if (prefix !== '') return prefix;
+    
+    // If it's a core extension, return null
+    if (CORE_EXTENSIONS.indexOf(prefix) !== -1) {
+        return null;
     }
+    
+    // If prefix is empty, it's not an extension
+    if (prefix === '') {
+        return null;
+    }
+    
+    return prefix;
 };
 
 /**
@@ -330,17 +341,18 @@ const getExtensionURLsToSave = (extensionIDs, runtime) => {
  * Serialize the given blocks object (representing all the blocks for the target
  * currently being serialized.)
  * @param {object} blocks The blocks to be serialized
+ * @param {Runtime} runtime The runtime to check for extension registration
  * @return {Array} An array of the serialized blocks with compressed inputs and
  * compressed primitives and the list of all extension IDs present
  * in the serialized blocks.
  */
-const serializeBlocks = function (blocks) {
+const serializeBlocks = function (blocks, runtime) {
     const obj = Object.create(null);
     const extensionIDs = new Set();
     for (const blockID in blocks) {
         if (!Object.prototype.hasOwnProperty.call(blocks, blockID)) continue;
         obj[blockID] = serializeBlock(blocks[blockID], blocks);
-        const extensionID = getExtensionIdForOpcode(blocks[blockID].opcode);
+        const extensionID = getExtensionIdForOpcode(blocks[blockID].opcode, runtime);
         if (extensionID) {
             extensionIDs.add(extensionID);
         }
@@ -409,7 +421,7 @@ const deserializeStandaloneBlocks = blocks => {
 const serializeStandaloneBlocks = (blocks, runtime) => {
     const extensionIDs = new Set();
     for (const block of blocks) {
-        const extensionID = getExtensionIdForOpcode(block.opcode);
+        const extensionID = getExtensionIdForOpcode(block.opcode, runtime);
         if (extensionID) {
             extensionIDs.add(extensionID);
         }
@@ -580,9 +592,10 @@ const serializeComments = function (comments) {
  * for saving and loading this target.
  * @param {object} target The target to be serialized.
  * @param {Set} extensions A set of extensions to add extension IDs to
+ * @param {Runtime} runtime The runtime to check for extension registration
  * @return {object} A serialized representation of the given target.
  */
-const serializeTarget = function (target, extensions) {
+const serializeTarget = function (target, extensions, runtime) {
     const obj = Object.create(null);
     let targetExtensions = [];
     obj.isStage = target.isStage;
@@ -591,7 +604,7 @@ const serializeTarget = function (target, extensions) {
     obj.variables = vars.variables;
     obj.lists = vars.lists;
     obj.broadcasts = vars.broadcasts;
-    [obj.blocks, targetExtensions] = serializeBlocks(target.blocks);
+    [obj.blocks, targetExtensions] = serializeBlocks(target.blocks, runtime);
     obj.comments = serializeComments(target.comments);
 
     // TODO remove this check/patch when (#1901) is fixed
@@ -668,7 +681,7 @@ const serializeMonitors = function (monitors, runtime, extensions) {
         // Don't include hidden monitors from extensions
         // https://github.com/LLK/scratch-vm/issues/2331
         .filter(monitorData => {
-            const extensionID = getExtensionIdForOpcode(monitorData.opcode);
+            const extensionID = getExtensionIdForOpcode(monitorData.opcode, runtime);
             if (!extensionID) {
                 // Native block, always safe
                 return true;
@@ -733,7 +746,7 @@ const serialize = function (runtime, targetId, {allowOptimization = true} = {}) 
         });
     }
 
-    const serializedTargets = flattenedOriginalTargets.map(t => serializeTarget(t, extensions))
+    const serializedTargets = flattenedOriginalTargets.map(t => serializeTarget(t, extensions, runtime))
         .map((serialized, index) => {
             // can't serialize extensionStorage until the list of used extensions is fully known
             const target = originalTargetsToSerialize[index];
@@ -1184,7 +1197,7 @@ const parseScratchObject = function (object, runtime, extensions, zip, assets) {
             blocks.createBlock(blockJSON);
 
             // If the block is from an extension, record it.
-            const extensionID = getExtensionIdForOpcode(blockJSON.opcode);
+            const extensionID = getExtensionIdForOpcode(blockJSON.opcode, runtime);
             if (extensionID) {
                 extensions.extensionIDs.add(extensionID);
             }
@@ -1434,7 +1447,7 @@ const deserializeMonitor = function (monitorData, runtime, targets, extensions) 
         runtime.monitorBlocks.createBlock(monitorBlock);
 
         // If the block is from an extension, record it.
-        const extensionID = getExtensionIdForOpcode(monitorBlock.opcode);
+        const extensionID = getExtensionIdForOpcode(monitorBlock.opcode, runtime);
         if (extensionID) {
             extensions.extensionIDs.add(extensionID);
         }

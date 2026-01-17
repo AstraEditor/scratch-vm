@@ -590,6 +590,128 @@ class ExtensionManager {
         return blockInfo;
     }
 
+    /**
+     * Unload an extension and remove all its blocks from the workspace
+     * @param {string} extensionId - the ID of the extension to unload
+     */
+    unloadExtension (extensionId) {
+        if (!this.isExtensionLoaded(extensionId)) {
+            return;
+        }
+
+        // 1. Find all blocks belonging to this extension from all targets
+        const targets = this.runtime.targets;
+        const blockIdsToDelete = [];
+        
+        targets.forEach(target => {
+            if (!target.blocks) return;
+            
+            const blockIds = Object.keys(target.blocks._blocks);
+            const extensionBlocks = blockIds.filter(blockId => {
+                const block = target.blocks._blocks[blockId];
+                if (!block || !block.opcode) return false;
+                // Check if opcode starts with extensionId
+                return block.opcode.startsWith(extensionId + '_');
+            });
+
+            // Collect block IDs to delete
+            blockIdsToDelete.push(...extensionBlocks);
+        });
+
+        // 2. Remove extension primitives
+        for (const opcode in this.runtime._primitives) {
+            if (opcode.startsWith(extensionId + '_')) {
+                delete this.runtime._primitives[opcode];
+            }
+        }
+
+        // 3. Remove extension from _blockInfo
+        const blockInfoIndex = this.runtime._blockInfo.findIndex(info => info.id === extensionId);
+        if (blockInfoIndex !== -1) {
+            this.runtime._blockInfo.splice(blockInfoIndex, 1);
+        }
+
+        // 4. Remove from _loadedExtensions, workerURLs and pendingWorkers
+        const serviceName = this._loadedExtensions.get(extensionId);
+        this._loadedExtensions.delete(extensionId);
+
+        if (serviceName) {
+            let fakeWorkerId = null;
+            if (serviceName.startsWith('unsandboxed.')) {
+                const parts = serviceName.split('.');
+                fakeWorkerId = parts[1];
+            } else if (serviceName.startsWith('extension_')) {
+                const parts = serviceName.split('_');
+                fakeWorkerId = parts[1];
+            }
+
+            if (fakeWorkerId !== null) {
+                delete this.workerURLs[fakeWorkerId];
+                delete this.pendingWorkers[fakeWorkerId];
+            }
+        }
+
+        // 5. Clear compiler cache for this extension
+        if (this.runtime.compiler) {
+            this.runtime.compiler.clearExtensionCache(extensionId);
+        }
+
+        // 6. Delete the extension blocks safely
+        // Strategy: Reconnect blocks that point to deleted blocks to the next block in the chain
+        
+        targets.forEach(target => {
+            if (!target.blocks) return;
+            
+            // First, reconnect blocks that point to deleted blocks
+            // For each block that has next pointing to a deleted block, redirect it to the deleted block's next
+            Object.keys(target.blocks._blocks).forEach(blockId => {
+                const block = target.blocks._blocks[blockId];
+                if (!block) return;
+                
+                // If this block's next points to a deleted block
+                if (block.next !== null && blockIdsToDelete.includes(block.next)) {
+                    const deletedBlock = target.blocks._blocks[block.next];
+                    if (deletedBlock && deletedBlock.next !== null) {
+                        // Reconnect to the deleted block's next
+                        block.next = deletedBlock.next;
+                        
+                        // Update the parent of the reconnected block
+                        const reconnectedBlock = target.blocks._blocks[deletedBlock.next];
+                        if (reconnectedBlock) {
+                            reconnectedBlock.parent = blockId;
+                        }
+                    } else {
+                        // No next block to reconnect to, just clear
+                        block.next = null;
+                    }
+                }
+                
+                // Also check inputs for connections to deleted blocks
+                for (const inputName in block.inputs) {
+                    const input = block.inputs[inputName];
+                    if (input.block !== null && blockIdsToDelete.includes(input.block)) {
+                        // For inputs, we can't easily reconnect, so just clear them
+                        input.block = null;
+                    }
+                }
+            });
+            
+            // Now delete the blocks
+            blockIdsToDelete.forEach(blockId => {
+                delete target.blocks._blocks[blockId];
+            });
+            
+            // Reset cache and emit project changed
+            target.blocks.resetCache();
+        });
+
+        // 7. Emit event that extension was removed with block IDs
+        this.runtime.emit('EXTENSION_REMOVED', { 
+            id: extensionId,
+            blockIds: blockIdsToDelete
+        });
+    }
+
     getExtensionURLs () {
         const extensionURLs = {};
         for (const [extensionId, serviceName] of this._loadedExtensions.entries()) {

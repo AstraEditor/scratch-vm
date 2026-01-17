@@ -127,6 +127,9 @@ class VirtualMachine extends EventEmitter {
         this.runtime.on(Runtime.EXTENSION_ADDED, categoryInfo => {
             this.emit(Runtime.EXTENSION_ADDED, categoryInfo);
         });
+        this.runtime.on(Runtime.EXTENSION_REMOVED, data => {
+            this.emit(Runtime.EXTENSION_REMOVED, data);
+        });
         this.runtime.on(Runtime.EXTENSION_FIELD_ADDED, (fieldName, fieldImplementation) => {
             this.emit(Runtime.EXTENSION_FIELD_ADDED, fieldName, fieldImplementation);
         });
@@ -771,6 +774,41 @@ class VirtualMachine extends EventEmitter {
     async _loadExtensions (extensionIDs, extensionURLs = new Map()) {
         const defaultExtensionURLs = require('./extension-support/tw-default-extension-urls');
         const extensionPromises = [];
+
+        // 缓存扩展元数据
+        let extensionMetadata = null;
+        const getExtensionMetadata = async () => {
+            if (extensionMetadata !== null) {
+                return extensionMetadata;
+            }
+            try {
+                const res = await fetch('https://extensions.turbowarp.org/generated-metadata/extensions-v0.json');
+                if (!res.ok) {
+                    return null;
+                }
+                const data = await res.json();
+                extensionMetadata = data.extensions;
+                return extensionMetadata;
+            } catch (error) {
+                return null;
+            }
+        };
+
+        const getExtensionName = async (extensionID, url) => {
+            // 尝试从元数据中获取名称
+            const metadata = await getExtensionMetadata();
+            if (metadata) {
+                const ext = metadata.find(e => e.id === extensionID);
+                if (ext && ext.name) {
+                    return ext.name;
+                }
+            }
+            // 如果无法获取名称，使用 ID
+            return extensionID;
+        };
+
+        // 先收集所有自定义扩展
+        const customExtensions = [];
         for (const extensionID of extensionIDs) {
             if (this.extensionManager.isExtensionLoaded(extensionID)) {
                 // Already loaded
@@ -786,13 +824,36 @@ class VirtualMachine extends EventEmitter {
                 if (!url) {
                     throw new Error(`Unknown extension: ${extensionID}`);
                 }
-                if (await this.securityManager.canLoadExtensionFromProject(url)) {
-                    extensionPromises.push(this.extensionManager.loadExtensionURL(url));
-                } else {
-                    throw new Error(`Permission to load extension denied: ${extensionID}`);
-                }
+                const name = await getExtensionName(extensionID, url);
+                customExtensions.push({ id: extensionID, url, name });
             }
         }
+
+        // 如果有自定义扩展，批量检查
+        if (customExtensions.length > 0) {
+            if (this.securityManager.canLoadMultipleExtensionsFromProject) {
+                const allowed = await this.securityManager.canLoadMultipleExtensionsFromProject(customExtensions);
+                if (!allowed) {
+                    throw new Error('Permission to load extensions denied');
+                }
+            } else {
+                // 降级到逐个检查
+                for (const { id, url } of customExtensions) {
+                    if (await this.securityManager.canLoadExtensionFromProject(id, url)) {
+                        extensionPromises.push(this.extensionManager.loadExtensionURL(url));
+                    } else {
+                        throw new Error(`Permission to load extension denied: ${id}`);
+                    }
+                }
+                return Promise.all(extensionPromises);
+            }
+        }
+
+        // 加载所有自定义扩展
+        for (const { id, url } of customExtensions) {
+            extensionPromises.push(this.extensionManager.loadExtensionURL(url));
+        }
+
         return Promise.all(extensionPromises);
     }
 
@@ -1743,6 +1804,9 @@ class VirtualMachine extends EventEmitter {
                             ${this.editingTarget.blocks.toXML(this.editingTarget.comments)}
                         </xml>`;
 
+        console.log('[VM emitWorkspaceUpdate] Generated XML length:', xmlString.length);
+        console.log('[VM emitWorkspaceUpdate] Total blocks in editing target:', Object.keys(this.editingTarget.blocks._blocks).length);
+        
         this.emit('workspaceUpdate', {xml: xmlString});
     }
 
