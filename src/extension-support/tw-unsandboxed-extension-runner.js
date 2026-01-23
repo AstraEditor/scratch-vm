@@ -32,7 +32,7 @@ const setupUnsandboxedExtensionAPI = vm => new Promise(resolve => {
     };
 
     // Create a new copy of global.Scratch for each extension
-    const Scratch = Object.assign({}, global.Scratch || {}, ScratchCommon);
+    const Scratch = Object.assign({}, ScratchCommon);
     Scratch.extensions = {
         unsandboxed: true,
         register
@@ -179,6 +179,7 @@ const teardownUnsandboxedExtensionAPI = () => {
  */
 const loadUnsandboxedExtension = (extensionURL, vm) => new Promise((resolve, reject) => {
     let isResolved = false;
+    const script = document.createElement('script');
 
     // Add timeout - if extension doesn't register within 5 seconds, fail
     const timeoutId = setTimeout(() => {
@@ -202,7 +203,6 @@ const loadUnsandboxedExtension = (extensionURL, vm) => new Promise((resolve, rej
         }
     });
 
-    const script = document.createElement('script');
     script.onerror = () => {
         if (!isResolved) {
             isResolved = true;
@@ -211,21 +211,17 @@ const loadUnsandboxedExtension = (extensionURL, vm) => new Promise((resolve, rej
         }
     };
     script.onload = () => {
-        // Script loaded successfully, but we still wait for registration or timeout
-        // Add a small delay to allow the script to execute and register
-        setTimeout(() => {
-            if (!isResolved) {
-                isResolved = true;
-                clearTimeout(timeoutId);
-                reject(new Error(`Extension script loaded but did not call Scratch.extensions.register(): ${extensionURL}`));
-            }
-        }, 100);
+        // Script loaded successfully, waiting for extension to call Scratch.extensions.register()
+        // The 5 second timeout will handle cases where the script doesn't register
     };
     script.src = extensionURL;
     document.body.appendChild(script);
 }).then(objects => {
     teardownUnsandboxedExtensionAPI();
     return objects;
+}).catch(error => {
+    teardownUnsandboxedExtensionAPI();
+    throw error;
 });
 
 // Because loading unsandboxed extensions requires messing with global state (global.Scratch),
