@@ -11,12 +11,28 @@ const translate = createTranslate(null);
 
 const loadScripts = url => {
     if (isWorker) {
-        importScripts(url);
+        // In Worker, importScripts is synchronous and throws on error
+        try {
+            importScripts(url);
+            return Promise.resolve();
+        } catch (e) {
+            return Promise.reject(new Error(`Failed to load extension script: ${e.message}`));
+        }
     } else {
+        // In iframe, use dynamic script loading with timeout
         return new Promise((resolve, reject) => {
             const script = document.createElement('script');
-            script.onload = () => resolve();
+            const timeoutId = setTimeout(() => {
+                reject(new Error(`Extension script loading timeout: ${url}`));
+            }, 10000); // 10 second timeout
+
+            script.onload = () => {
+                clearTimeout(timeoutId);
+                // Add a small delay to allow the script to execute and register
+                setTimeout(resolve, 100);
+            };
             script.onerror = () => {
+                clearTimeout(timeoutId);
                 reject(new Error(`Error in sandboxed script: ${url}. Check the console for more information.`));
             };
             script.src = url;
@@ -41,8 +57,15 @@ class ExtensionWorker {
                 this.workerId = id;
 
                 try {
+                    // Add timeout for registration - if extension doesn't register within 5 seconds, fail
+                    const registrationTimeout = new Promise((_, reject) => {
+                        setTimeout(() => {
+                            reject(new Error('Extension did not call Scratch.extensions.register() within 5 seconds. The script may have crashed or contains syntax errors.'));
+                        }, 5000);
+                    });
+
                     await loadScripts(extension);
-                    await this.firstRegistrationPromise;
+                    await Promise.race([this.firstRegistrationPromise, registrationTimeout]);
 
                     const initialRegistrations = this.initialRegistrations;
                     this.initialRegistrations = null;

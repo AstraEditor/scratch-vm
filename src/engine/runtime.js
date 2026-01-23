@@ -359,6 +359,25 @@ class Runtime extends EventEmitter {
          */
         this.redrawRequested = false;
 
+        /**
+         * Track render times for FPS calculation.
+         * Stores timestamps of each frame render in the last second.
+         * @type {Array<number>}
+         */
+        this._renderTimes = [];
+
+        /**
+         * Last time FPS was updated.
+         * @type {number}
+         */
+        this._lastFpsTime = Date.now();
+
+        /**
+         * Current FPS value.
+         * @type {number}
+         */
+        this._currentFps = 30;
+
         // Register all given block packages.
         this._registerBlockPackages();
 
@@ -2578,6 +2597,21 @@ class Runtime extends EventEmitter {
             if (this.profiler !== null) {
                 this.profiler.stop();
             }
+
+            // Update FPS tracking
+            const now = Date.now();
+            // Remove all frame times older than 1 second
+            while (this._renderTimes.length > 0 && this._renderTimes[0] <= now - 1000) {
+                this._renderTimes.shift();
+            }
+            this._renderTimes.push(now);
+
+            // Update FPS every 20ms for faster response
+            if (now - this._lastFpsTime > 20) {
+                this._lastFpsTime = now;
+                const maxFps = this.frameLoop.framerate === 0 ? 60 : this.frameLoop.framerate;
+                this._currentFps = Math.min(this._renderTimes.length, maxFps);
+            }
         }
 
         if (this._refreshTargets) {
@@ -2664,6 +2698,14 @@ class Runtime extends EventEmitter {
         if (framerate < 0) framerate = 1;
         this.frameLoop.setFramerate(framerate);
         this.emit(Runtime.FRAMERATE_CHANGED, framerate);
+    }
+
+    /**
+     * Get the current actual frames per second.
+     * @returns {number} Current FPS
+     */
+    getCurrentFPS () {
+        return this._currentFps;
     }
 
     /**

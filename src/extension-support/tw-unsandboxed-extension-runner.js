@@ -178,11 +178,48 @@ const teardownUnsandboxedExtensionAPI = () => {
  * @returns {Promise<object[]>} Resolves with a list of extension objects if the extension was loaded successfully.
  */
 const loadUnsandboxedExtension = (extensionURL, vm) => new Promise((resolve, reject) => {
-    setupUnsandboxedExtensionAPI(vm).then(resolve);
+    let isResolved = false;
+
+    // Add timeout - if extension doesn't register within 5 seconds, fail
+    const timeoutId = setTimeout(() => {
+        if (!isResolved) {
+            isResolved = true;
+            reject(new Error(`Extension did not register within 5 seconds: ${extensionURL}. The script may have crashed or contains syntax errors.`));
+        }
+    }, 5000);
+
+    setupUnsandboxedExtensionAPI(vm).then(objects => {
+        if (!isResolved) {
+            isResolved = true;
+            clearTimeout(timeoutId);
+            resolve(objects);
+        }
+    }).catch(error => {
+        if (!isResolved) {
+            isResolved = true;
+            clearTimeout(timeoutId);
+            reject(error);
+        }
+    });
 
     const script = document.createElement('script');
     script.onerror = () => {
-        reject(new Error(`Error in unsandboxed script ${extensionURL}. Check the console for more information.`));
+        if (!isResolved) {
+            isResolved = true;
+            clearTimeout(timeoutId);
+            reject(new Error(`Error loading unsandboxed script ${extensionURL}. Check the console for more information.`));
+        }
+    };
+    script.onload = () => {
+        // Script loaded successfully, but we still wait for registration or timeout
+        // Add a small delay to allow the script to execute and register
+        setTimeout(() => {
+            if (!isResolved) {
+                isResolved = true;
+                clearTimeout(timeoutId);
+                reject(new Error(`Extension script loaded but did not call Scratch.extensions.register(): ${extensionURL}`));
+            }
+        }, 100);
     };
     script.src = extensionURL;
     document.body.appendChild(script);

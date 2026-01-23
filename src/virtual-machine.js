@@ -1804,9 +1804,7 @@ class VirtualMachine extends EventEmitter {
                             ${this.editingTarget.blocks.toXML(this.editingTarget.comments)}
                         </xml>`;
 
-        console.log('[VM emitWorkspaceUpdate] Generated XML length:', xmlString.length);
-        console.log('[VM emitWorkspaceUpdate] Total blocks in editing target:', Object.keys(this.editingTarget.blocks._blocks).length);
-        
+
         this.emit('workspaceUpdate', {xml: xmlString});
     }
 
