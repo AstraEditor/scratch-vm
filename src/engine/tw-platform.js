@@ -3,5 +3,5 @@
 
 module.exports = {
     name: 'AstraEditor',
-    url: 'https://astras.top/'
+    url: 'https://www.astras.top/'
 };
