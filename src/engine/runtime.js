@@ -553,6 +553,30 @@ class Runtime extends EventEmitter {
          * Total number of finished or errored scratch-storage load() requests since the runtime was created or cleared.
          */
         this.finishedAssetRequests = 0;
+
+        /**
+         * 为保存信息定义的翻译
+         */
+        this.projectSaveTranslate = {
+            'en': `Configuration for https://turbowarp.org/\nYou can move, resize, and minimize this comment, but don't edit it by hand. This comment can be deleted to remove the stored settings.`,
+            'zh': `适用于 TurboWarp 及其改版的作品配置，您可以移动、调整大小和最小化此注释而不改变实际效果，但不要进行编辑。删除此注释可移除存储的高级设置。配置：`,
+            'zh-cn': `适用于 TurboWarp 及其改版的作品配置，您可以移动、调整大小和最小化此注释而不改变实际效果，但不要进行编辑。删除此注释可移除存储的高级设置。配置：`,
+            'es': `Configuración para https://turbowarp.org/\nPuede mover, cambiar el tamaño y minimizar este comentario, pero no lo edite manualmente. Este comentario se puede eliminar para eliminar la configuración almacenada.`,
+            'fr': `Configuration pour https://turbowarp.org/\nVous pouvez déplacer, redimensionner et minimiser ce commentaire, mais ne l'éditez pas manuellement. Ce commentaire peut être supprimé pour supprimer les paramètres stockés.`,
+            'de': `Konfiguration für https://turbowarp.org/\nSie können diesen Kommentar verschieben, in der Größe ändern und minimieren, aber bearbeiten Sie ihn nicht manuell. Dieser Kommentar kann gelöscht werden, um die gespeicherten Einstellungen zu entfernen.`,
+            'ja': `https://turbowarp.org/ の設定\nこのコメントを移動、サイズ変更、最小化できますが、手動で編集しないでください。このコメントを削除すると、保存された設定が削除されます。`,
+            'ko': `https://turbowarp.org/ 구성\n이 주석을 이동, 크기 조절 및 최소화할 수 있지만, 수동으로 편집하지 마세요. 이 주석을 삭제하면 저장된 설정이 제거됩니다.`,
+            'pt': `Configuração para https://turbowarp.org/\nVocê pode mover, redimensionar e minimizar este comentário, mas não o edite manualmente. Este comentário pode ser excluído para remover as configurações armazenadas.`,
+            'ru': `Конфигурация для https://turbowarp.org/\nВы можете перемещать, изменять размер и сворачивать этот комментарий, но не редактируйте его вручную. Этот комментарий можно удалить, чтобы удалить сохраненные настройки.`,
+            'it': `Configurazione per https://turbowarp.org/\nPuoi spostare, ridimensionare e minimizzare questo commento, ma non modificarlo manualmente. Questo commento può essere eliminato per rimuovere le impostazioni salvate.`,
+            'nl': `Configuratie voor https://turbowarp.org/\nU kunt dit opmerking verplaatsen, van grootte veranderen en minimaliseren, maar bewerk het niet handmatig. Dit opmerking kan worden verwijderd om de opgeslagen instellingen te verwijderen.`,
+            'pl': `Konfiguracja dla https://turbowarp.org/\nMożesz przesuwać, zmieniać rozmiar i minimalizować ten komentarz, ale nie edytuj go ręcznie. Ten komentarz można usunąć, aby usunąć zapisane ustawienia.`,
+            'tr': `https://turbowarp.org/ için Yapılandırma\nBu yorumu taşıyabilir, yeniden boyutlandırabilir ve simge durumuna küçültebilirsiniz, ancak el ile düzenlemeyin. Bu yorum silinerek kayıtlı ayarlar kaldırılabilir.`,
+            'ar': `تكوين https://turbowarp.org/\nيمكنك نقل هذا التعليق وتغيير حجمه وتصغيره، ولكن لا تقم بتعديله يدويًا. يمكن حذف هذا التعليق لإزالة الإعدادات المخزنة.`,
+            'th': `การตั้งค่าสำหรับ https://turbowarp.org/\nคุณสามารถย้าย ปรับขนาด และย่อข้อความนี้ได้ แต่อย่าแก้ไขด้วยตนเอง สามารถลบข้อความนี้เพื่อลบการตั้งค่าที่จัดเก็บได้`,
+            'vi': `Cấu hình cho https://turbowarp.org/\nBạn có thể di chuyển, thay đổi kích thước và thu nhỏ nhận xét này, nhưng đừng chỉnh sửa thủ công. Nhận xét này có thể bị xóa để xóa cài đặt đã lưu.`,
+            'id': `Konfigurasi untuk https://turbowarp.org/\nAnda dapat memindahkan, mengubah ukuran, dan meminimalkan komentar ini, tetapi jangan edit secara manual. Komentar ini dapat dihapus untuk menghapus pengaturan yang tersimpan.`
+        }
     }
 
     /**
@@ -2964,8 +2988,10 @@ class Runtime extends EventEmitter {
 
     storeProjectOptions () {
         const options = this.generateDifferingProjectOptions();
-        // TODO: translate
-        const text = `Configuration for https://turbowarp.org/\nYou can move, resize, and minimize this comment, but don't edit it by hand. This comment can be deleted to remove the stored settings.\n${ExtendedJSON.stringify(options)}${COMMENT_CONFIG_MAGIC}`;
+        const formatMessage = require('format-message');
+        const locale = formatMessage.setup().locale || 'en';
+        const translatedText = this.projectSaveTranslate[locale] || this.projectSaveTranslate[locale.split('-')[0]] || this.projectSaveTranslate['en'];
+        const text = `${translatedText}\n${ExtendedJSON.stringify(options)}${COMMENT_CONFIG_MAGIC}`;
         const existingComment = this.findProjectOptionsComment();
         if (existingComment) {
             existingComment.text = text;

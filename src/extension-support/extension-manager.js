@@ -599,10 +599,11 @@ class ExtensionManager {
             return;
         }
 
-        // 1. Find all blocks belonging to this extension from all targets
         const targets = this.runtime.targets;
         const blockIdsToDelete = [];
-        
+        let hasUsedBlocks = false;
+
+        // First, check if any blocks from this extension are being used
         targets.forEach(target => {
             if (!target.blocks) return;
             
@@ -618,20 +619,58 @@ class ExtensionManager {
             blockIdsToDelete.push(...extensionBlocks);
         });
 
-        // 2. Remove extension primitives
+        // Check if there are any blocks to delete
+        if (blockIdsToDelete.length > 0) {
+            hasUsedBlocks = true;
+        }
+
+        // If blocks are being used, ask for user confirmation
+        if (hasUsedBlocks) {
+            // 获取当前语言
+            const formatMessage = require('format-message');
+            const locale = formatMessage.setup().locale || 'en';
+            
+            // 翻译文本
+            const confirmMessages = {
+                'en': 'This project is using an extension that will be removed. Do you want to continue?',
+                'zh': '此项目正在使用将被移除的扩展。是否继续？',
+                'zh-cn': '此项目正在使用将被移除的扩展。是否继续？',
+                'es': 'Este proyecto está usando una extensión que será eliminada. ¿Desea continuar?',
+                'fr': 'Ce projet utilise une extension qui sera supprimée. Voulez-vous continuer?',
+                'de': 'Dieses Projekt verwendet eine Erweiterung, die entfernt wird. Möchten Sie fortfahren?',
+                'ja': 'このプロジェクトは削除される拡張機能を使用しています。続行しますか？',
+                'ko': '이 프로젝트는 제거될 확장 기능을 사용하고 있습니다. 계속하시겠습니까?',
+                'pt': 'Este projeto está usando uma extensão que será removida. Deseja continuar?',
+                'ru': 'Этот проект использует расширение, которое будет удалено. Хотите продолжить?',
+                'it': 'Questo progetto sta utilizzando un\'estensione che verrà rimossa. Vuoi continuare?',
+                'nl': 'Dit project gebruikt een extensie die wordt verwijderd. Wilt u doorgaan?',
+                'pl': 'Ten projekt używa rozszerzenie, które zostanie usunięte. Czy chcesz kontynuować?',
+                'tr': 'Bu projeje kaldırılacak bir uzantı kullanıyor. Devam etmek istiyor musunuz?',
+                'ar': 'هذا المشروع يستخدم ملحقًا سيتم إزالته. هل تريد المتابعة؟',
+                'th': 'โปรเจกต์นี้กำลังใช้ส่วนขยายที่จะถูกลบ คุณต้องการดำเนินการต่อหรือไม่?',
+                'vi': 'Dự án này đang sử dụng tiện ích mở rộng sẽ bị xóa. Bạn có muốn tiếp tục?',
+                'id': 'Proyek ini menggunakan ekstensi yang akan dihapus. Apakah Anda ingin melanjutkan?'
+            };
+            
+            const message = confirmMessages[locale] || confirmMessages[locale.split('-')[0]] || confirmMessages['en'];
+            const userConfirm = window.confirm(message);
+            if (!userConfirm) {
+                return; // User cancelled, don't delete the extension
+            }
+        }
+
+        // Proceed with deletion
         for (const opcode in this.runtime._primitives) {
             if (opcode.startsWith(extensionId + '_')) {
                 delete this.runtime._primitives[opcode];
             }
         }
 
-        // 3. Remove extension from _blockInfo
         const blockInfoIndex = this.runtime._blockInfo.findIndex(info => info.id === extensionId);
         if (blockInfoIndex !== -1) {
             this.runtime._blockInfo.splice(blockInfoIndex, 1);
         }
 
-        // 4. Remove from _loadedExtensions, workerURLs and pendingWorkers
         const serviceName = this._loadedExtensions.get(extensionId);
         this._loadedExtensions.delete(extensionId);
 
@@ -705,7 +744,6 @@ class ExtensionManager {
             target.blocks.resetCache();
         });
 
-        // 7. Emit event that extension was removed with block IDs
         this.runtime.emit('EXTENSION_REMOVED', { 
             id: extensionId,
             blockIds: blockIdsToDelete
