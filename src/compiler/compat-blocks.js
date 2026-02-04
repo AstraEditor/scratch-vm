@@ -39,6 +39,7 @@ const inputs = [
     'sensing_loud',
     'sensing_loudness',
     'sensing_userid',
+    'sensing_online',
     'sound_volume'
 ];
 

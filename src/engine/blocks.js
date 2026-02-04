@@ -1290,8 +1290,10 @@ class Blocks {
         }
         for (const inputKey in block.inputs) {
             const inputBlock = this._blocks[block.inputs[inputKey].block];
+            // 只会传递一个值可还行，我给你改了不用谢
+            // 用来做 颜色碰到颜色? 积木的翻译嘻嘻
             for (const key in inputBlock.fields) {
-                params[key] = inputBlock.fields[key].value;
+                params[inputKey] = inputBlock.fields[key].value;
             }
         }
         return params;
