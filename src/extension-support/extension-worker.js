@@ -60,8 +60,8 @@ class ExtensionWorker {
                     // Add timeout for registration - if extension doesn't register within 5 seconds, fail
                     const registrationTimeout = new Promise((_, reject) => {
                         setTimeout(() => {
-                            reject(new Error('Extension did not call Scratch.extensions.register() within 5 seconds. The script may have crashed or contains syntax errors.'));
-                        }, 5000);
+                            reject(new Error('Extension did not call Scratch.extensions.register() within 15 seconds. The script may have crashed or contains syntax errors.'));
+                        }, 15000);
                     });
 
                     await loadScripts(extension);

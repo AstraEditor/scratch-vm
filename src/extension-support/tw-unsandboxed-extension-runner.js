@@ -212,7 +212,7 @@ const loadUnsandboxedExtension = (extensionURL, vm) => new Promise((resolve, rej
     };
     script.onload = () => {
         // Script loaded successfully, waiting for extension to call Scratch.extensions.register()
-        // The 5 second timeout will handle cases where the script doesn't register
+        // The 15 second timeout will handle cases where the script doesn't register
     };
     script.src = extensionURL;
     document.body.appendChild(script);
