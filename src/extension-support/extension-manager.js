@@ -201,7 +201,7 @@ class ExtensionManager {
      * @param {string} extensionURL - the URL for the extension to load OR the ID of an internal extension
      * @returns {Promise} resolved once the extension is loaded and initialized or rejected on failure
      */
-    async loadExtensionURL (extensionURL) {
+    async loadExtensionURL (extensionURL, Trust) {
         if (this.isBuiltinExtension(extensionURL)) {
             this.loadExtensionIdSync(extensionURL);
             return;
@@ -222,8 +222,7 @@ class ExtensionManager {
 
         const sandboxMode = await this.securityManager.getSandboxMode(extensionURL);
         const rewritten = await this.securityManager.rewriteExtensionURL(extensionURL);
-
-        if (sandboxMode === 'unsandboxed') {
+        if (sandboxMode === 'unsandboxed' || Trust) {
             const {load} = require('./tw-unsandboxed-extension-runner');
             const extensionObjects = await load(rewritten, this.vm)
                 .catch(error => this._failedLoadingExtensionScript(error));
