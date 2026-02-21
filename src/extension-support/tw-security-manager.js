@@ -42,10 +42,23 @@ class SecurityManager {
      * Determine whether a custom extension that was stored inside a project may be
      * loaded. You could, for example, ask the user to confirm loading an extension
      * before resolving.
+     * @param {string} extensionID The extension ID
      * @param {string} extensionURL The URL of the custom extension.
      * @returns {Promise<boolean>|boolean}
      */
-    canLoadExtensionFromProject (extensionURL) {
+    canLoadExtensionFromProject(extensionID,extensionURL) {
+        // Default to false for security
+        return Promise.resolve(false);
+    }
+
+    /**
+     * Determine whether multiple custom extensions that were stored inside a project may be
+     * loaded. You could, for example, ask the user to confirm loading extensions
+     * before resolving.
+     * @param {Array<{id: string, url: string}>} extensions Array of extensions to load
+     * @returns {Promise<boolean>|boolean}
+     */
+    canLoadMultipleExtensionsFromProject(extensions) {
         // Default to false for security
         return Promise.resolve(false);
     }

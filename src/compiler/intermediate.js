@@ -259,7 +259,7 @@ class IntermediateStack {
      */
     constructor (blocks) {
         /** @type {IntermediateStackBlock[]} */
-        this.blocks = blocks ?? [];
+        this.blocks = blocks !== undefined && blocks !== null ? blocks : [];
     }
 }
 

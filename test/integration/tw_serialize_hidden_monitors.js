@@ -5,12 +5,12 @@ const MonitorRecord = require('../../src/engine/monitor-record');
 
 test('does not serialize hidden monitors from extensions', t => {
     const rt = new Runtime();
-    rt.requestAddMonitor(new MonitorRecord({
+    rt.requestAddMonitor(MonitorRecord({
         id: 'timer',
         opcode: 'sensing_timer',
         visible: true
     }));
-    rt.requestAddMonitor(new MonitorRecord({
+    rt.requestAddMonitor(MonitorRecord({
         id: 'other_monitor',
         opcode: 'tw_someOpcodeThatIsntPartOfACoreExtension',
         visible: true

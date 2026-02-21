@@ -3,6 +3,7 @@ const mutationAdapter = require('./mutation-adapter');
 const xmlEscape = require('../util/xml-escape');
 const MonitorRecord = require('./monitor-record');
 const Clone = require('../util/clone');
+const {Map} = require('immutable');
 const BlocksExecuteCache = require('./blocks-execute-cache');
 const BlocksRuntimeCache = require('./blocks-runtime-cache');
 const log = require('../util/log');
@@ -710,10 +711,10 @@ class Blocks {
 
                 const flyoutBlock = block.shadow && block.parent ? this._blocks[block.parent] : block;
                 if (flyoutBlock.isMonitored) {
-                    this.runtime.requestUpdateMonitor({
+                    this.runtime.requestUpdateMonitor(Map({
                         id: flyoutBlock.id,
                         params: this._getBlockParams(flyoutBlock)
-                    });
+                    }));
                 }
             }
             break;
@@ -772,7 +773,7 @@ class Blocks {
             } else if (!wasMonitored && block.isMonitored) {
                 // Tries to show the monitor for specified block. If it doesn't exist, add the monitor.
                 if (!this.runtime.requestShowMonitor(block.id)) {
-                    this.runtime.requestAddMonitor(new MonitorRecord({
+                    this.runtime.requestAddMonitor(MonitorRecord({
                         id: block.id,
                         targetId: block.targetId,
                         spriteName: block.targetId ? this.runtime.getTargetById(block.targetId).getName() : null,
@@ -1289,8 +1290,10 @@ class Blocks {
         }
         for (const inputKey in block.inputs) {
             const inputBlock = this._blocks[block.inputs[inputKey].block];
+            // 只会传递一个值可还行，我给你改了不用谢
+            // 用来做 颜色碰到颜色? 积木的翻译嘻嘻
             for (const key in inputBlock.fields) {
-                params[key] = inputBlock.fields[key].value;
+                params[inputKey] = inputBlock.fields[key].value;
             }
         }
         return params;

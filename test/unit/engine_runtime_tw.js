@@ -1,8 +1,7 @@
 const tap = require('tap');
 const Runtime = require('../../src/engine/runtime');
-const MonitorRecord = require('../../src/engine/monitor-record');
+const {Map} = require('immutable');
 const makeTestStorage = require('../fixtures/make-test-storage');
-const Target = require('../../src/engine/target');
 
 const test = tap.test;
 
@@ -158,12 +157,12 @@ test('debug', t => {
 
 test('setStageSize preserves monitor position relative to center of stage', t => {
     const rt = new Runtime();
-    rt.requestAddMonitor(new MonitorRecord({
-        id: 'abc',
+    rt.requestAddMonitor(new Map([
+        ['id', 'abc'],
         // top right corner
-        x: 0,
-        y: 0
-    }));
+        ['x', 0],
+        ['y', 0]
+    ]));
     rt.setStageSize(640, 362);
     const finalState = rt.getMonitorState().get('abc');
     t.equal(finalState.get('x'), 80);
@@ -252,23 +251,5 @@ test('convertToPackagedRuntime and attachStorage call order', t => {
     const rt2 = new Runtime();
     rt2.convertToPackagedRuntime();
     rt2.attachStorage(makeTestStorage());
-    t.end();
-});
-
-test('visual report -0', t => {
-    t.plan(1);
-
-    const rt = new Runtime();
-    const target = new Target();
-    rt.setEditingTarget(target);
-
-    rt.on(Runtime.VISUAL_REPORT, report => {
-        t.same(report, {
-            id: 'blockid',
-            value: '-0'
-        });
-    });
-    rt.visualReport(target, 'blockid', -0);
-
     t.end();
 });

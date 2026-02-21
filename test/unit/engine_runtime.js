@@ -4,6 +4,7 @@ const readFileToBuffer = require('../fixtures/readProjectFile').readFileToBuffer
 const VirtualMachine = require('../../src/virtual-machine');
 const Runtime = require('../../src/engine/runtime');
 const MonitorRecord = require('../../src/engine/monitor-record');
+const {Map} = require('immutable');
 
 const test = tap.test;
 
@@ -27,15 +28,15 @@ test('spec', t => {
 test('monitorStateEquals', t => {
     const r = new Runtime();
     const id = 'xklj4#!';
-    const prevMonitorState = new MonitorRecord({
+    const prevMonitorState = MonitorRecord({
         id,
         opcode: 'turtle whereabouts',
         value: '25'
     });
-    const newMonitorDelta = {
+    const newMonitorDelta = Map({
         id,
         value: String(25)
-    };
+    });
     r.requestAddMonitor(prevMonitorState);
     r.requestUpdateMonitor(newMonitorDelta);
 
@@ -48,32 +49,31 @@ test('monitorStateDoesNotEqual', t => {
     const r = new Runtime();
     const id = 'xklj4#!';
     const params = {seven: 7};
-    const prevMonitorState = new MonitorRecord({
+    const prevMonitorState = MonitorRecord({
         id,
         opcode: 'turtle whereabouts',
         value: '25'
     });
 
     // Value change
-    let newMonitorDelta = {
+    let newMonitorDelta = Map({
         id,
         value: String(24)
-    };
+    });
     r.requestAddMonitor(prevMonitorState);
     r.requestUpdateMonitor(newMonitorDelta);
 
-    t.equals(true, r._monitorState.dirty);
+    t.equals(false, prevMonitorState.equals(r._monitorState.get(id)));
     t.equals(String(24), r._monitorState.get(id).get('value'));
 
     // Prop change
-    r._monitorState.dirty = false;
-    newMonitorDelta = {
+    newMonitorDelta = Map({
         id: 'xklj4#!',
         params: params
-    };
+    });
     r.requestUpdateMonitor(newMonitorDelta);
 
-    t.equals(true, r._monitorState.dirty);
+    t.equals(false, prevMonitorState.equals(r._monitorState.get(id)));
     t.equals(String(24), r._monitorState.get(id).value);
     t.equals(params, r._monitorState.get(id).params);
 

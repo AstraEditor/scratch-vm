@@ -32,7 +32,7 @@ const setupUnsandboxedExtensionAPI = vm => new Promise(resolve => {
     };
 
     // Create a new copy of global.Scratch for each extension
-    const Scratch = Object.assign({}, global.Scratch || {}, ScratchCommon);
+    const Scratch = Object.assign({}, ScratchCommon);
     Scratch.extensions = {
         unsandboxed: true,
         register
@@ -178,17 +178,50 @@ const teardownUnsandboxedExtensionAPI = () => {
  * @returns {Promise<object[]>} Resolves with a list of extension objects if the extension was loaded successfully.
  */
 const loadUnsandboxedExtension = (extensionURL, vm) => new Promise((resolve, reject) => {
-    setupUnsandboxedExtensionAPI(vm).then(resolve);
-
+    let isResolved = false;
     const script = document.createElement('script');
+
+    // Add timeout - if extension doesn't register within 5 seconds, fail
+    const timeoutId = setTimeout(() => {
+        if (!isResolved) {
+            isResolved = true;
+            reject(new Error(`Extension did not register within 5 seconds: ${extensionURL}. The script may have crashed or contains syntax errors.`));
+        }
+    }, 5000);
+
+    setupUnsandboxedExtensionAPI(vm).then(objects => {
+        if (!isResolved) {
+            isResolved = true;
+            clearTimeout(timeoutId);
+            resolve(objects);
+        }
+    }).catch(error => {
+        if (!isResolved) {
+            isResolved = true;
+            clearTimeout(timeoutId);
+            reject(error);
+        }
+    });
+
     script.onerror = () => {
-        reject(new Error(`Error in unsandboxed script ${extensionURL}. Check the console for more information.`));
+        if (!isResolved) {
+            isResolved = true;
+            clearTimeout(timeoutId);
+            reject(new Error(`Error loading unsandboxed script ${extensionURL}. Check the console for more information.`));
+        }
+    };
+    script.onload = () => {
+        // Script loaded successfully, waiting for extension to call Scratch.extensions.register()
+        // The 15 second timeout will handle cases where the script doesn't register
     };
     script.src = extensionURL;
     document.body.appendChild(script);
 }).then(objects => {
     teardownUnsandboxedExtensionAPI();
     return objects;
+}).catch(error => {
+    teardownUnsandboxedExtensionAPI();
+    throw error;
 });
 
 // Because loading unsandboxed extensions requires messing with global state (global.Scratch),

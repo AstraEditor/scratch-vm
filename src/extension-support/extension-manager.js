@@ -201,7 +201,7 @@ class ExtensionManager {
      * @param {string} extensionURL - the URL for the extension to load OR the ID of an internal extension
      * @returns {Promise} resolved once the extension is loaded and initialized or rejected on failure
      */
-    async loadExtensionURL (extensionURL) {
+    async loadExtensionURL (extensionURL, Trust) {
         if (this.isBuiltinExtension(extensionURL)) {
             this.loadExtensionIdSync(extensionURL);
             return;
@@ -222,8 +222,7 @@ class ExtensionManager {
 
         const sandboxMode = await this.securityManager.getSandboxMode(extensionURL);
         const rewritten = await this.securityManager.rewriteExtensionURL(extensionURL);
-
-        if (sandboxMode === 'unsandboxed') {
+        if (sandboxMode === 'unsandboxed' || Trust) {
             const {load} = require('./tw-unsandboxed-extension-runner');
             const extensionObjects = await load(rewritten, this.vm)
                 .catch(error => this._failedLoadingExtensionScript(error));
@@ -588,6 +587,240 @@ class ExtensionManager {
         }
 
         return blockInfo;
+    }
+
+    /**
+     * Confirm message translations for extension removal
+     * @private
+     */
+    static _getRemovalConfirmMessage (locale) {
+        const messages = {
+            'en': 'This project is using an extension that will be removed. Do you want to continue?',
+            'zh': '此项目正在使用将被移除的扩展。是否继续？',
+            'zh-cn': '此项目正在使用将被移除的扩展。是否继续？',
+            'es': 'Este proyecto está usando una extensión que será eliminada. ¿Desea continuar?',
+            'fr': 'Ce projet utilise une extension qui sera supprimée. Voulez-vous continuer?',
+            'de': 'Dieses Projekt verwendet eine Erweiterung, die entfernt wird. Möchten Sie fortfahren?',
+            'ja': 'このプロジェクトは削除される拡張機能を使用しています。続行しますか？',
+            'ko': '이 프로젝트는 제거될 확장 기능을 사용하고 있습니다. 계속하시겠습니까?',
+            'pt': 'Este projeto está usando uma extensão que será removida. Deseja continuar?',
+            'ru': 'Этот проект использует расширение, которое будет удалено. Хотите продолжить?',
+            'it': 'Questo progetto sta utilizzando un\'estensione che verrà rimossa. Vuoi continuare?',
+            'nl': 'Dit project gebruikt een extensie die wordt verwijderd. Wilt u doorgaan?',
+            'pl': 'Ten projekt używa rozszerzenie, które zostanie usunięte. Czy chcesz kontynuować?',
+            'tr': 'Bu projeje kaldırılacak bir uzantı kullanıyor. Devam etmek istiyor musunuz?',
+            'ar': 'هذا المشروع يستخدم ملحقًا سيتم إزالته. هل تريد المتابعة؟',
+            'th': 'โปรเจกต์นี้กำลังใช้ส่วนขยายที่จะถูกลบ คุณต้องการดำเนินการต่อหรือไม่?',
+            'vi': 'Dự án này đang sử dụng tiện ích mở rộng sẽ bị xóa. Bạn có muốn tiếp tục?',
+            'id': 'Proyek ini menggunakan ekstensi yang akan dihapus. Apakah Anda ingin melanjutkan?'
+        };
+        return messages[locale] || messages[locale.split('-')[0]] || messages['en'];
+    }
+
+    /**
+     * Collect all blocks in a block chain starting from the given block ID
+     * @param {Object} blocks - The blocks object
+     * @param {string|null} startBlockId - The starting block ID
+     * @param {Set<string>} result - Set to collect block IDs
+     * @private
+     */
+    static _collectBlockChain (blocks, startBlockId, result) {
+        let currentId = startBlockId;
+        while (currentId !== null) {
+            result.add(currentId);
+            const block = blocks[currentId];
+            if (!block) break;
+            
+            // Also collect blocks in C-block branches (if/forever/etc)
+            for (const inputName in block.inputs) {
+                const input = block.inputs[inputName];
+                if (input.block !== null) {
+                    ExtensionManager._collectBlockChain(blocks, input.block, result);
+                }
+            }
+            
+            currentId = block.next;
+        }
+    }
+
+    /**
+     * Unload an extension and remove all its blocks from the workspace
+     * @param {string} extensionId - the ID of the extension to unload
+     */
+    unloadExtension (extensionId) {
+        if (!this.isExtensionLoaded(extensionId)) {
+            return;
+        }
+
+        // Step 1: Collect all extension block IDs (only extension blocks, not connected blocks)
+        const blockIdsToDelete = new Set();
+
+        this.runtime.targets.forEach(target => {
+            if (!target.blocks) return;
+            
+            Object.keys(target.blocks._blocks).forEach(blockId => {
+                const block = target.blocks._blocks[blockId];
+                if (block && block.opcode && block.opcode.startsWith(`${extensionId}_`)) {
+                    blockIdsToDelete.add(blockId);
+                }
+            });
+        });
+
+        // Step 2: Ask for confirmation if blocks are being used
+        if (blockIdsToDelete.size > 0) {
+            const formatMessage = require('format-message');
+            const locale = formatMessage.setup().locale || 'en';
+            const message = ExtensionManager._getRemovalConfirmMessage(locale);
+            
+            if (!window.confirm(message)) {
+                return; // User cancelled
+            }
+        }
+
+        // Step 3: Stop all threads that are running these blocks
+        const threadsToStop = [];
+        for (let i = 0; i < this.runtime.threads.length; i++) {
+            const thread = this.runtime.threads[i];
+            if (!thread) continue;
+
+            // Check if any block in the thread's stack is being deleted
+            let shouldStop = false;
+            for (let j = 0; j < thread.stack.length; j++) {
+                if (blockIdsToDelete.has(thread.stack[j])) {
+                    shouldStop = true;
+                    break;
+                }
+            }
+
+            if (shouldStop) {
+                threadsToStop.push(thread);
+            }
+        }
+
+        // Stop the identified threads
+        threadsToStop.forEach(thread => {
+            this.runtime._stopThread(thread);
+        });
+
+        // Step 4: Remove monitors for extension blocks
+        this.runtime.targets.forEach(target => {
+            if (!target.blocks) return;
+            
+            const blocks = target.blocks._blocks;
+            
+            blockIdsToDelete.forEach(blockId => {
+                const block = blocks[blockId];
+                if (block) {
+                    // Request to hide the monitor for this block if it exists
+                    this.runtime.requestHideMonitor(blockId);
+                }
+            });
+        });
+
+        // Step 5: Remove extension primitives and metadata
+        Object.keys(this.runtime._primitives).forEach(opcode => {
+            if (opcode.startsWith(`${extensionId}_`)) {
+                delete this.runtime._primitives[opcode];
+            }
+        });
+
+        const blockInfoIndex = this.runtime._blockInfo.findIndex(info => info.id === extensionId);
+        if (blockInfoIndex !== -1) {
+            this.runtime._blockInfo.splice(blockInfoIndex, 1);
+        }
+
+        // Step 6: Clean up worker-related data
+        const serviceName = this._loadedExtensions.get(extensionId);
+        this._loadedExtensions.delete(extensionId);
+
+        if (serviceName) {
+            const workerIdMatch = serviceName.match(/(?:unsandboxed\.|extension_)([^.]+)/);
+            if (workerIdMatch) {
+                const workerId = workerIdMatch[1];
+                delete this.workerURLs[workerId];
+                delete this.pendingWorkers[workerId];
+            }
+        }
+
+        // Step 7: Clear compiler cache
+        if (this.runtime.compiler) {
+            this.runtime.compiler.clearExtensionCache(extensionId);
+        }
+
+        // Step 8: Disconnect and delete extension blocks properly
+        // Simple algorithm: only delete extension blocks, reconnect others
+
+        this.runtime.targets.forEach(target => {
+            if (!target.blocks) return;
+
+            const blocks = target.blocks._blocks;
+
+            // First pass: handle top-level extension blocks
+            // Make the block after them top-level
+            blockIdsToDelete.forEach(blockId => {
+                const extensionBlock = blocks[blockId];
+                if (!extensionBlock || !extensionBlock.topLevel) return;
+
+                if (extensionBlock.next !== null) {
+                    const firstNextBlockId = extensionBlock.next;
+                    const firstNextBlock = blocks[firstNextBlockId];
+
+                    if (firstNextBlock) {
+                        firstNextBlock.topLevel = true;
+                        firstNextBlock.parent = null;
+                        target.blocks._addScript(firstNextBlockId);
+                    }
+                }
+            });
+
+            // Second pass: disconnect all references to extension blocks
+            Object.keys(blocks).forEach(blockId => {
+                const block = blocks[blockId];
+                if (!block) return;
+
+                // Handle NEXT connection
+                if (block.next !== null && blockIdsToDelete.has(block.next)) {
+                    const extensionBlock = blocks[block.next];
+                    if (extensionBlock) {
+                        block.next = extensionBlock.next;
+
+                        if (extensionBlock.next !== null) {
+                            const nextBlock = blocks[extensionBlock.next];
+                            if (nextBlock) {
+                                nextBlock.parent = blockId;
+                            }
+                        }
+                    }
+                }
+
+                // Handle INPUT connections
+                Object.entries(block.inputs).forEach(([_inputName, input]) => {
+                    if (input.block !== null && blockIdsToDelete.has(input.block)) {
+                        input.block = null;
+                    }
+                });
+            });
+
+            // Third pass: delete extension blocks
+            blockIdsToDelete.forEach(blockId => {
+                const block = blocks[blockId];
+                if (!block) return;
+
+                if (block.topLevel) {
+                    target.blocks._deleteScript(blockId);
+                }
+
+                delete blocks[blockId];
+            });
+
+            target.blocks.resetCache();
+        });
+
+        // Step 9: Emit event to notify the UI
+        this.runtime.emit('EXTENSION_REMOVED', { 
+            id: extensionId,
+            blockIds: Array.from(blockIdsToDelete)
+        });
     }
 
     getExtensionURLs () {

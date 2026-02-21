@@ -2,6 +2,7 @@ const BlockUtility = require('./block-utility');
 const BlocksExecuteCache = require('./blocks-execute-cache');
 const log = require('../util/log');
 const Thread = require('./thread');
+const {Map} = require('immutable');
 const cast = require('../util/cast');
 
 /**
@@ -99,11 +100,11 @@ const handleReport = function (resolvedValue, sequencer, thread, blockCached, la
                     // Target no longer exists
                     return;
                 }
-                sequencer.runtime.requestUpdateMonitor({
+                sequencer.runtime.requestUpdateMonitor(Map({
                     id: currentBlockId,
                     spriteName: targetId ? sequencer.runtime.getTargetById(targetId).getName() : null,
                     value: resolvedValue
-                });
+                }));
             }
         }
         // Finished any yields.

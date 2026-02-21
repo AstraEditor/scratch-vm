@@ -414,7 +414,7 @@ const parseMonitorObject = (object, runtime, targets, extensions) => {
     }
 
     // Create a monitor record for the runtime's monitorState
-    runtime.requestAddMonitor(new MonitorRecord({
+    runtime.requestAddMonitor(MonitorRecord({
         id: block.id,
         targetId: block.targetId,
         spriteName: block.targetId ? object.target : null,

@@ -4,6 +4,7 @@ const Blocks = require('./blocks');
 const Variable = require('../engine/variable');
 const Comment = require('../engine/comment');
 const uid = require('../util/uid');
+const {Map} = require('immutable');
 const log = require('../util/log');
 const StringUtil = require('../util/string-util');
 const VariableUtil = require('../util/variable-util');
@@ -351,10 +352,10 @@ class Target extends EventEmitter {
                     }, this.runtime);
                     const monitorBlock = blocks.getBlock(variable.id);
                     if (monitorBlock) {
-                        this.runtime.requestUpdateMonitor({
+                        this.runtime.requestUpdateMonitor(Map({
                             id: id,
                             params: blocks._getBlockParams(monitorBlock)
-                        });
+                        }));
                     }
                 }
 
