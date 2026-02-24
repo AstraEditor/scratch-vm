@@ -127,8 +127,8 @@ class VirtualMachine extends EventEmitter {
         this.runtime.on(Runtime.EXTENSION_ADDED, categoryInfo => {
             this.emit(Runtime.EXTENSION_ADDED, categoryInfo);
         });
-        this.runtime.on(Runtime.EXTENSION_REMOVED, data => {
-            this.emit(Runtime.EXTENSION_REMOVED, data);
+        this.runtime.on(Runtime.EXTENSION_REMOVED, (...args) => {
+            this.emit(Runtime.EXTENSION_REMOVED, ...args);
         });
         this.runtime.on(Runtime.EXTENSION_FIELD_ADDED, (fieldName, fieldImplementation) => {
             this.emit(Runtime.EXTENSION_FIELD_ADDED, fieldName, fieldImplementation);

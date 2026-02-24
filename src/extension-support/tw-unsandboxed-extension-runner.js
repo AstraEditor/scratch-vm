@@ -185,7 +185,7 @@ const loadUnsandboxedExtension = (extensionURL, vm) => new Promise((resolve, rej
     const timeoutId = setTimeout(() => {
         if (!isResolved) {
             isResolved = true;
-            reject(new Error(`Extension did not register within 5 seconds: ${extensionURL}. The script may have crashed or contains syntax errors.`));
+            reject(new Error(`Extension did not register within 5 seconds: ${extensionURL.slice(0,100)}${extensionURL.length > 100 ? '...' : ''}. The script may have crashed or contains syntax errors.`));
         }
     }, 5000);
 
@@ -207,7 +207,7 @@ const loadUnsandboxedExtension = (extensionURL, vm) => new Promise((resolve, rej
         if (!isResolved) {
             isResolved = true;
             clearTimeout(timeoutId);
-            reject(new Error(`Error loading unsandboxed script ${extensionURL}. Check the console for more information.`));
+            reject(new Error(`Error loading unsandboxed script ${extensionURL.slice(0,100)}${extensionURL.length > 100 ? '...' : ''}. Check the console for more information.`));
         }
     };
     script.onload = () => {

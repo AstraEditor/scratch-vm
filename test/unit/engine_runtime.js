@@ -28,7 +28,7 @@ test('spec', t => {
 test('monitorStateEquals', t => {
     const r = new Runtime();
     const id = 'xklj4#!';
-    const prevMonitorState = MonitorRecord({
+    const prevMonitorState = new MonitorRecord({
         id,
         opcode: 'turtle whereabouts',
         value: '25'
@@ -49,7 +49,7 @@ test('monitorStateDoesNotEqual', t => {
     const r = new Runtime();
     const id = 'xklj4#!';
     const params = {seven: 7};
-    const prevMonitorState = MonitorRecord({
+    const prevMonitorState = new MonitorRecord({
         id,
         opcode: 'turtle whereabouts',
         value: '25'

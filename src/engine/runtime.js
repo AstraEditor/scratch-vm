@@ -33,6 +33,7 @@ const MouseWheel = require('../io/mouseWheel');
 const UserData = require('../io/userData');
 const Video = require('../io/video');
 
+const MonitorRecord = require('./monitor-record');
 const StringUtil = require('../util/string-util');
 const uid = require('../util/uid');
 
@@ -3125,30 +3126,29 @@ class Runtime extends EventEmitter {
     /**
      * Add a monitor to the state. If the monitor already exists in the state,
      * updates those properties that are defined in the given monitor record.
-     * @param {!MonitorRecord} monitor Monitor to add.
+     * @param {!Map|!MonitorRecord|!object} monitor Monitor to add.
      */
     requestAddMonitor(monitor) {
-        const id = monitor.get('id');
+        const monitorMap = MonitorRecord.externalDeltaToJS(monitor);
+        const id = monitorMap.id;
         if (!this.requestUpdateMonitor(monitor)) { // update monitor if it exists in the state
             // if the monitor did not exist in the state, add it
-            this._monitorState = this._monitorState.set(id, monitor);
+            this._monitorState = this._monitorState.set(id,
+                monitor instanceof MonitorRecord ? monitor : new MonitorRecord(monitorMap));
         }
     }
 
     /**
      * Update a monitor in the state and report success/failure of update.
-     * @param {!Map} monitor Monitor values to update. Values on the monitor with overwrite
+     * @param {!Map|!MonitorRecord|!object} monitor Monitor values to update. Values on the monitor with overwrite
      *     values on the old monitor with the same ID. If a value isn't defined on the new monitor,
      *     the old monitor will keep its old value.
      * @return {boolean} true if monitor exists in the state and was updated, false if it did not exist.
      */
     requestUpdateMonitor(monitor) {
-        // 哎呦我去了为什么它会传入一个Object然后爆炸呢，到底是哪里的问题
-        const isMap = typeof monitor.get == 'function';
-        const id = isMap ? monitor.get('id') : monitor.id;
+        const monitorMap = MonitorRecord.externalDeltaToJS(monitor);
+        const id = monitorMap.id;
         if (this._monitorState.has(id)) {
-            // 转换成Map而不是Object
-            const monitorMap = isMap ? monitor : OrderedMap(monitor);
             this._monitorState =
                 // Use mergeWith here to prevent undefined values from overwriting existing ones
                 this._monitorState.set(id, this._monitorState.get(id).mergeWith((prev, next) => {

@@ -1453,7 +1453,7 @@ const deserializeMonitor = function (monitorData, runtime, targets, extensions) 
         }
     }
 
-    runtime.requestAddMonitor(MonitorRecord(monitorData));
+    runtime.requestAddMonitor(new MonitorRecord(monitorData));
 };
 
 // Replace variable IDs throughout the project with

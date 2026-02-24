@@ -3,6 +3,23 @@
  * @returns {boolean}
  */
 const defined = obj => typeof obj !== 'undefined' && obj !== null;
+const MONITOR_PROPERTIES = [
+    'id',
+    'spriteName',
+    'targetId',
+    'opcode',
+    'value',
+    'params',
+    'mode',
+    'sliderMin',
+    'sliderMax',
+    'isDiscrete',
+    'x',
+    'y',
+    'width',
+    'height',
+    'visible'
+];
 
 /**
  * @typedef JSDelta Delta object using regular JS object.
@@ -98,6 +115,24 @@ class MonitorRecord {
     }
 
     /**
+     * Exists for compatibility with code expecting an immutable.js Map
+     * @param {string} property
+     * @param {unknown} value
+     * @returns {MonitorRecord}
+     */
+    set (property, value) {
+        if (!MONITOR_PROPERTIES.includes(property)) {
+            return this;
+        }
+        if (Object.is(this[property], value)) {
+            return this;
+        }
+        const clone = new MonitorRecord(this.toJS());
+        clone[property] = value;
+        return clone;
+    }
+
+    /**
      * @param {JSDelta} delta
      * @returns {boolean} true if modified
      */
@@ -181,6 +216,63 @@ class MonitorRecord {
 
         return didChange;
     }
+
+    /**
+     * Exists for compatibility with code expecting an immutable.js Map
+     * @param {(prev: unknown, next: unknown, key: string) => unknown} merger
+     * @param {ExternalDelta} delta
+     * @returns {MonitorRecord}
+     */
+    mergeWith (merger, delta) {
+        const jsDelta = MonitorRecord.externalDeltaToJS(delta);
+        let result = this;
+        for (const [key, nextValue] of Object.entries(jsDelta)) {
+            if (!MONITOR_PROPERTIES.includes(key)) continue;
+            const prevValue = result.get(key);
+            const mergedValue = merger(prevValue, nextValue, key);
+            result = result.set(key, mergedValue);
+        }
+        return result;
+    }
+
+    /**
+     * Exists for compatibility with code expecting an immutable.js Map
+     * @returns {JSDelta}
+     */
+    toJS () {
+        return {
+            id: this.id,
+            spriteName: this.spriteName,
+            targetId: this.targetId,
+            opcode: this.opcode,
+            value: this.value,
+            params: this.params,
+            mode: this.mode,
+            sliderMin: this.sliderMin,
+            sliderMax: this.sliderMax,
+            isDiscrete: this.isDiscrete,
+            x: this.x,
+            y: this.y,
+            width: this.width,
+            height: this.height,
+            visible: this.visible
+        };
+    }
+
+    /**
+     * Exists for compatibility with code expecting an immutable.js Map
+     * @param {ExternalDelta} other
+     * @returns {boolean}
+     */
+    equals (other) {
+        const jsOther = MonitorRecord.externalDeltaToJS(other);
+        for (const key of MONITOR_PROPERTIES) {
+            if (!Object.is(this[key], jsOther[key])) {
+                return false;
+            }
+        }
+        return true;
+    }
 }
 
 /**
@@ -189,6 +281,12 @@ class MonitorRecord {
  * @returns {JSDelta}
  */
 MonitorRecord.externalDeltaToJS = obj => {
+    if (!defined(obj)) {
+        return {};
+    }
+    if (obj instanceof MonitorRecord) {
+        return obj.toJS();
+    }
     if (typeof obj.toJS === 'function') {
         return obj.toJS();
     }

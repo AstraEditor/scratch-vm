@@ -4,6 +4,7 @@ const maybeFormatMessage = require('../util/maybe-format-message');
 
 const BlockType = require('./block-type');
 const SecurityManager = require('./tw-security-manager');
+const defaultExtensionURLs = require('./tw-default-extension-urls');
 
 // These extensions are currently built into the VM repository but should not be loaded at startup.
 // TODO: move these out into a separate repository?
@@ -182,6 +183,98 @@ class ExtensionManager {
         this.builtinExtensions[extensionId] = () => extensionClass;
     }
 
+    _normalizeExtensionInput (extensionInput) {
+        if (typeof extensionInput !== 'string') {
+            return '';
+        }
+        return extensionInput.trim();
+    }
+
+    _resolveBuiltinExtensionId (extensionId) {
+        if (!extensionId) {
+            return null;
+        }
+        if (this.isBuiltinExtension(extensionId)) {
+            return extensionId;
+        }
+        const normalized = extensionId.toLowerCase();
+        const builtinIds = Object.keys(this.builtinExtensions);
+        for (let i = 0; i < builtinIds.length; i++) {
+            if (builtinIds[i].toLowerCase() === normalized) {
+                return builtinIds[i];
+            }
+        }
+        return null;
+    }
+
+    _normalizeExtensionURL (extensionURL) {
+        let url = this._normalizeExtensionInput(extensionURL);
+        if (!url) {
+            return null;
+        }
+
+        if (/^\/\/.+/.test(url)) {
+            url = `https:${url}`;
+        } else if (/^(?:github|raw\.githubusercontent)\.com\//i.test(url)) {
+            url = `https://${url}`;
+        } else if (
+            !/^[a-z][a-z0-9+.-]*:/i.test(url) &&
+            /^[a-z0-9.-]+\.[a-z]{2,}(?:\/|$)/i.test(url)
+        ) {
+            url = `https://${url}`;
+        }
+
+        let parsed;
+        try {
+            parsed = new URL(url);
+        } catch (e) {
+            return url;
+        }
+
+        if (parsed.protocol === 'https:' && parsed.hostname.toLowerCase() === 'github.com') {
+            const parts = parsed.pathname.split('/').filter(Boolean);
+            if (parts.length >= 5 && parts[2] === 'blob') {
+                const owner = parts[0];
+                const repository = parts[1];
+                const branch = parts[3];
+                const filePath = parts.slice(4).join('/');
+                if (owner && repository && branch && filePath) {
+                    return `https://raw.githubusercontent.com/${owner}/${repository}/${branch}/${filePath}`;
+                }
+            }
+        }
+
+        return parsed.href;
+    }
+
+    _getExtensionLoadCandidates (extensionInput) {
+        const candidates = [];
+        const add = url => {
+            if (!url || candidates.includes(url)) {
+                return;
+            }
+            candidates.push(url);
+        };
+
+        const normalizedInput = this._normalizeExtensionInput(extensionInput);
+        if (!normalizedInput) {
+            return candidates;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(defaultExtensionURLs, normalizedInput)) {
+            add(defaultExtensionURLs[normalizedInput]);
+        }
+
+        const normalizedURL = this._normalizeExtensionURL(normalizedInput);
+        add(normalizedURL);
+
+        if (/^https:\/\/raw\.githubusercontent\.com\//i.test(normalizedURL || '')) {
+            add(`https://trampoline.turbowarp.org/proxy/${normalizedURL}`);
+        }
+
+        return candidates;
+    }
+
     _isValidExtensionURL (extensionURL) {
         try {
             const parsedURL = new URL(extensionURL);
@@ -202,60 +295,98 @@ class ExtensionManager {
      * @returns {Promise} resolved once the extension is loaded and initialized or rejected on failure
      */
     async loadExtensionURL (extensionURL, Trust) {
-        if (this.isBuiltinExtension(extensionURL)) {
-            this.loadExtensionIdSync(extensionURL);
+        const normalizedInput = this._normalizeExtensionInput(extensionURL);
+        const builtinExtensionId = this._resolveBuiltinExtensionId(normalizedInput);
+        if (builtinExtensionId) {
+            this.loadExtensionIdSync(builtinExtensionId);
             return;
         }
 
-        if (this.isExtensionURLLoaded(extensionURL)) {
-            // Extension is already loaded.
-            return;
-        }
-
-        if (!this._isValidExtensionURL(extensionURL)) {
+        const candidates = this._getExtensionLoadCandidates(normalizedInput);
+        if (candidates.length === 0) {
             throw new Error(`Invalid extension URL: ${extensionURL}`);
+        }
+
+        let lastError = null;
+        for (const candidateURL of candidates) {
+            if (this.isExtensionURLLoaded(candidateURL)) {
+                return;
+            }
+
+            if (!this._isValidExtensionURL(candidateURL)) {
+                lastError = new Error(`Invalid extension URL: ${candidateURL}`);
+                continue;
+            }
+
+            try {
+                await this._loadCustomExtensionURL(candidateURL, Trust);
+                return;
+            } catch (e) {
+                lastError = e;
+            }
+        }
+
+        if (lastError) {
+            throw lastError;
+        }
+        throw new Error(`Invalid extension URL: ${extensionURL}`);
+    }
+
+    async _loadCustomExtensionURL (extensionURL, Trust) {
+        if (this.isExtensionURLLoaded(extensionURL)) {
+            return;
         }
 
         this.runtime.setExternalCommunicationMethod('customExtensions', true);
 
         this.loadingAsyncExtensions++;
+        try {
+            const sandboxMode = await this.securityManager.getSandboxMode(extensionURL);
+            const rewritten = await this.securityManager.rewriteExtensionURL(extensionURL);
+            if (this.isExtensionURLLoaded(rewritten)) {
+                this._finishedLoadingExtensionScript();
+                return;
+            }
+            if (sandboxMode === 'unsandboxed' || Trust) {
+                const {load} = require('./tw-unsandboxed-extension-runner');
+                const extensionObjects = await load(rewritten, this.vm);
+                const fakeWorkerId = this.nextExtensionWorker++;
+                this.workerURLs[fakeWorkerId] = extensionURL;
 
-        const sandboxMode = await this.securityManager.getSandboxMode(extensionURL);
-        const rewritten = await this.securityManager.rewriteExtensionURL(extensionURL);
-        if (sandboxMode === 'unsandboxed' || Trust) {
-            const {load} = require('./tw-unsandboxed-extension-runner');
-            const extensionObjects = await load(rewritten, this.vm)
-                .catch(error => this._failedLoadingExtensionScript(error));
-            const fakeWorkerId = this.nextExtensionWorker++;
-            this.workerURLs[fakeWorkerId] = extensionURL;
+                for (const extensionObject of extensionObjects) {
+                    const extensionInfo = extensionObject.getInfo();
+                    if (this.isExtensionLoaded(extensionInfo.id)) {
+                        log.warn(`Rejecting attempt to load a second extension with ID ${extensionInfo.id}`);
+                        continue;
+                    }
+                    const serviceName = `unsandboxed.${fakeWorkerId}.${extensionInfo.id}`;
+                    dispatch.setServiceSync(serviceName, extensionObject);
+                    dispatch.callSync('extensions', 'registerExtensionServiceSync', serviceName);
+                    this._loadedExtensions.set(extensionInfo.id, serviceName);
+                }
 
-            for (const extensionObject of extensionObjects) {
-                const extensionInfo = extensionObject.getInfo();
-                const serviceName = `unsandboxed.${fakeWorkerId}.${extensionInfo.id}`;
-                dispatch.setServiceSync(serviceName, extensionObject);
-                dispatch.callSync('extensions', 'registerExtensionServiceSync', serviceName);
-                this._loadedExtensions.set(extensionInfo.id, serviceName);
+                this._finishedLoadingExtensionScript();
+                return;
             }
 
-            this._finishedLoadingExtensionScript();
-            return;
-        }
+            /* eslint-disable max-len */
+            let ExtensionWorker;
+            if (sandboxMode === 'worker') {
+                ExtensionWorker = require('worker-loader?name=js/extension-worker/extension-worker.[hash].js!./extension-worker');
+            } else if (sandboxMode === 'iframe') {
+                ExtensionWorker = (await import(/* webpackChunkName: "iframe-extension-worker" */ './tw-iframe-extension-worker')).default;
+            } else {
+                throw new Error(`Invalid sandbox mode: ${sandboxMode}`);
+            }
+            /* eslint-enable max-len */
 
-        /* eslint-disable max-len */
-        let ExtensionWorker;
-        if (sandboxMode === 'worker') {
-            ExtensionWorker = require('worker-loader?name=js/extension-worker/extension-worker.[hash].js!./extension-worker');
-        } else if (sandboxMode === 'iframe') {
-            ExtensionWorker = (await import(/* webpackChunkName: "iframe-extension-worker" */ './tw-iframe-extension-worker')).default;
-        } else {
-            throw new Error(`Invalid sandbox mode: ${sandboxMode}`);
+            await new Promise((resolve, reject) => {
+                this.pendingExtensions.push({extensionURL: rewritten, resolve, reject});
+                dispatch.addWorker(new ExtensionWorker());
+            });
+        } catch (error) {
+            this._failedLoadingExtensionScript(error);
         }
-        /* eslint-enable max-len */
-
-        return new Promise((resolve, reject) => {
-            this.pendingExtensions.push({extensionURL: rewritten, resolve, reject});
-            dispatch.addWorker(new ExtensionWorker());
-        }).catch(error => this._failedLoadingExtensionScript(error));
     }
 
     /**
@@ -320,15 +451,25 @@ class ExtensionManager {
      * @param {string} serviceName - the name of the service hosting the extension.
      */
     registerExtensionService (serviceName) {
-        dispatch.call(serviceName, 'getInfo').then(info => {
-            this._loadedExtensions.set(info.id, serviceName);
-            this._registerExtensionInfo(serviceName, info);
-            this._finishedLoadingExtensionScript();
-        });
+        dispatch.call(serviceName, 'getInfo')
+            .then(info => {
+                if (this.isExtensionLoaded(info.id)) {
+                    log.warn(`Rejecting attempt to load a second extension with ID ${info.id}`);
+                    return;
+                }
+                this._loadedExtensions.set(info.id, serviceName);
+                this._registerExtensionInfo(serviceName, info);
+            })
+            .catch(e => {
+                log.error(`Failed to initialize extension service ${serviceName}:`, e);
+            })
+            .then(() => {
+                this._finishedLoadingExtensionScript();
+            });
     }
 
     _finishedLoadingExtensionScript () {
-        this.loadingAsyncExtensions--;
+        this.loadingAsyncExtensions = Math.max(0, this.loadingAsyncExtensions - 1);
         if (this.loadingAsyncExtensions === 0) {
             this.asyncExtensionsLoadedCallbacks.forEach(i => i.resolve());
             this.asyncExtensionsLoadedCallbacks = [];
@@ -338,11 +479,26 @@ class ExtensionManager {
     _failedLoadingExtensionScript (error) {
         // Don't set the current extension counter to 0, otherwise it will go negative if another
         // extension finishes or fails to load.
-        this.loadingAsyncExtensions--;
+        this.loadingAsyncExtensions = Math.max(0, this.loadingAsyncExtensions - 1);
         this.asyncExtensionsLoadedCallbacks.forEach(i => i.reject(error));
         this.asyncExtensionsLoadedCallbacks = [];
         // Re-throw error so the promise still rejects.
         throw error;
+    }
+
+    static _getWorkerIdFromServiceName (serviceName) {
+        if (typeof serviceName !== 'string') {
+            return null;
+        }
+        const workerServiceMatch = serviceName.match(/^(?:extension|unsandboxed)\.(\d+)\./);
+        if (workerServiceMatch) {
+            return Number(workerServiceMatch[1]);
+        }
+        const internalServiceMatch = serviceName.match(/^extension_(\d+)_/);
+        if (internalServiceMatch) {
+            return Number(internalServiceMatch[1]);
+        }
+        return null;
     }
 
     /**
@@ -614,33 +770,64 @@ class ExtensionManager {
             'vi': 'Dự án này đang sử dụng tiện ích mở rộng sẽ bị xóa. Bạn có muốn tiếp tục?',
             'id': 'Proyek ini menggunakan ekstensi yang akan dihapus. Apakah Anda ingin melanjutkan?'
         };
-        return messages[locale] || messages[locale.split('-')[0]] || messages['en'];
+        return messages[locale] || messages[locale.split('-')[0]] || messages.en;
     }
 
-    /**
-     * Collect all blocks in a block chain starting from the given block ID
-     * @param {Object} blocks - The blocks object
-     * @param {string|null} startBlockId - The starting block ID
-     * @param {Set<string>} result - Set to collect block IDs
-     * @private
-     */
-    static _collectBlockChain (blocks, startBlockId, result) {
-        let currentId = startBlockId;
-        while (currentId !== null) {
-            result.add(currentId);
-            const block = blocks[currentId];
-            if (!block) break;
-            
-            // Also collect blocks in C-block branches (if/forever/etc)
+    static _isExtensionOpcode (block, extensionId) {
+        return (
+            block &&
+            typeof block.opcode === 'string' &&
+            block.opcode.startsWith(`${extensionId}_`)
+        );
+    }
+
+    static _collectInputTree (blocks, startBlockId, result) {
+        if (!startBlockId || result.has(startBlockId)) {
+            return;
+        }
+        const block = blocks[startBlockId];
+        if (!block) {
+            return;
+        }
+
+        result.add(startBlockId);
+
+        if (block.inputs) {
             for (const inputName in block.inputs) {
                 const input = block.inputs[inputName];
-                if (input.block !== null) {
-                    ExtensionManager._collectBlockChain(blocks, input.block, result);
+                if (!input) {
+                    continue;
+                }
+                if (input.block) {
+                    ExtensionManager._collectInputTree(blocks, input.block, result);
+                }
+                if (input.shadow) {
+                    ExtensionManager._collectInputTree(blocks, input.shadow, result);
                 }
             }
-            
-            currentId = block.next;
         }
+
+        if (block.next) {
+            ExtensionManager._collectInputTree(blocks, block.next, result);
+        }
+    }
+
+    static _findNextSurvivingBlockId (blocks, startBlockId, blockIdsToDelete) {
+        let nextId = startBlockId;
+        while (nextId && blockIdsToDelete.has(nextId)) {
+            const nextBlock = blocks[nextId];
+            nextId = nextBlock ? nextBlock.next : null;
+        }
+        return nextId || null;
+    }
+
+    _isWorkerIdInUse (workerId) {
+        for (const loadedServiceName of this._loadedExtensions.values()) {
+            if (ExtensionManager._getWorkerIdFromServiceName(loadedServiceName) === workerId) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -649,178 +836,231 @@ class ExtensionManager {
      */
     unloadExtension (extensionId) {
         if (!this.isExtensionLoaded(extensionId)) {
-            return;
+            return false;
         }
 
-        // Step 1: Collect all extension block IDs (only extension blocks, not connected blocks)
-        const blockIdsToDelete = new Set();
+        const targetRemovalPlans = [];
+        const allBlockIdsToDelete = new Set();
+        for (const target of this.runtime.targets) {
+            if (!target.blocks) {
+                continue;
+            }
 
-        this.runtime.targets.forEach(target => {
-            if (!target.blocks) return;
-            
-            Object.keys(target.blocks._blocks).forEach(blockId => {
-                const block = target.blocks._blocks[blockId];
-                if (block && block.opcode && block.opcode.startsWith(`${extensionId}_`)) {
-                    blockIdsToDelete.add(blockId);
+            const blocks = target.blocks._blocks;
+            const extensionRootBlockIds = [];
+            for (const blockId of Object.keys(blocks)) {
+                if (ExtensionManager._isExtensionOpcode(blocks[blockId], extensionId)) {
+                    extensionRootBlockIds.push(blockId);
                 }
-            });
-        });
+            }
+            if (extensionRootBlockIds.length === 0) {
+                continue;
+            }
 
-        // Step 2: Ask for confirmation if blocks are being used
-        if (blockIdsToDelete.size > 0) {
+            const blockIdsToDelete = new Set(extensionRootBlockIds);
+            for (const rootBlockId of extensionRootBlockIds) {
+                const rootBlock = blocks[rootBlockId];
+                if (!rootBlock || !rootBlock.inputs) {
+                    continue;
+                }
+                for (const inputName in rootBlock.inputs) {
+                    const input = rootBlock.inputs[inputName];
+                    if (!input) {
+                        continue;
+                    }
+                    if (input.block) {
+                        ExtensionManager._collectInputTree(blocks, input.block, blockIdsToDelete);
+                    }
+                    if (input.shadow) {
+                        ExtensionManager._collectInputTree(blocks, input.shadow, blockIdsToDelete);
+                    }
+                }
+            }
+
+            targetRemovalPlans.push({
+                target,
+                rootBlockIds: extensionRootBlockIds,
+                blockIdsToDelete
+            });
+            for (const blockId of blockIdsToDelete) {
+                allBlockIdsToDelete.add(blockId);
+            }
+        }
+
+        if (
+            allBlockIdsToDelete.size > 0 &&
+            typeof window !== 'undefined' &&
+            typeof window.confirm === 'function'
+        ) {
             const formatMessage = require('format-message');
             const locale = formatMessage.setup().locale || 'en';
             const message = ExtensionManager._getRemovalConfirmMessage(locale);
-            
-            if (!window.confirm(message)) {
-                return; // User cancelled
+            const confirmKey = 'confirm';
+            const confirmRemoval = window[confirmKey];
+            if (typeof confirmRemoval === 'function' && !confirmRemoval.call(window, message)) {
+                return false;
             }
         }
 
-        // Step 3: Stop all threads that are running these blocks
-        const threadsToStop = [];
-        for (let i = 0; i < this.runtime.threads.length; i++) {
-            const thread = this.runtime.threads[i];
-            if (!thread) continue;
-
-            // Check if any block in the thread's stack is being deleted
-            let shouldStop = false;
-            for (let j = 0; j < thread.stack.length; j++) {
-                if (blockIdsToDelete.has(thread.stack[j])) {
-                    shouldStop = true;
-                    break;
-                }
+        for (const thread of this.runtime.threads) {
+            if (!thread || !thread.stack) {
+                continue;
             }
-
-            if (shouldStop) {
-                threadsToStop.push(thread);
+            if (thread.stack.some(blockId => allBlockIdsToDelete.has(blockId))) {
+                this.runtime._stopThread(thread);
             }
         }
 
-        // Stop the identified threads
-        threadsToStop.forEach(thread => {
-            this.runtime._stopThread(thread);
-        });
-
-        // Step 4: Remove monitors for extension blocks
-        this.runtime.targets.forEach(target => {
-            if (!target.blocks) return;
-            
-            const blocks = target.blocks._blocks;
-            
-            blockIdsToDelete.forEach(blockId => {
-                const block = blocks[blockId];
-                if (block) {
-                    // Request to hide the monitor for this block if it exists
-                    this.runtime.requestHideMonitor(blockId);
-                }
-            });
-        });
-
-        // Step 5: Remove extension primitives and metadata
-        Object.keys(this.runtime._primitives).forEach(opcode => {
-            if (opcode.startsWith(`${extensionId}_`)) {
-                delete this.runtime._primitives[opcode];
-            }
-        });
-
-        const blockInfoIndex = this.runtime._blockInfo.findIndex(info => info.id === extensionId);
-        if (blockInfoIndex !== -1) {
-            this.runtime._blockInfo.splice(blockInfoIndex, 1);
-        }
-
-        // Step 6: Clean up worker-related data
-        const serviceName = this._loadedExtensions.get(extensionId);
-        this._loadedExtensions.delete(extensionId);
-
-        if (serviceName) {
-            const workerIdMatch = serviceName.match(/(?:unsandboxed\.|extension_)([^.]+)/);
-            if (workerIdMatch) {
-                const workerId = workerIdMatch[1];
-                delete this.workerURLs[workerId];
-                delete this.pendingWorkers[workerId];
-            }
-        }
-
-        // Step 7: Clear compiler cache
-        if (this.runtime.compiler) {
-            this.runtime.compiler.clearExtensionCache(extensionId);
-        }
-
-        // Step 8: Disconnect and delete extension blocks properly
-        // Simple algorithm: only delete extension blocks, reconnect others
-
-        this.runtime.targets.forEach(target => {
-            if (!target.blocks) return;
-
+        const removedBlockIds = new Set();
+        for (const plan of targetRemovalPlans) {
+            const {target, rootBlockIds, blockIdsToDelete} = plan;
             const blocks = target.blocks._blocks;
 
-            // First pass: handle top-level extension blocks
-            // Make the block after them top-level
-            blockIdsToDelete.forEach(blockId => {
-                const extensionBlock = blocks[blockId];
-                if (!extensionBlock || !extensionBlock.topLevel) return;
-
-                if (extensionBlock.next !== null) {
-                    const firstNextBlockId = extensionBlock.next;
-                    const firstNextBlock = blocks[firstNextBlockId];
-
-                    if (firstNextBlock) {
-                        firstNextBlock.topLevel = true;
-                        firstNextBlock.parent = null;
-                        target.blocks._addScript(firstNextBlockId);
-                    }
+            for (const rootBlockId of rootBlockIds) {
+                const rootBlock = blocks[rootBlockId];
+                if (!rootBlock) {
+                    continue;
                 }
-            });
+                const replacementNextId = ExtensionManager._findNextSurvivingBlockId(
+                    blocks,
+                    rootBlock.next,
+                    blockIdsToDelete
+                );
 
-            // Second pass: disconnect all references to extension blocks
-            Object.keys(blocks).forEach(blockId => {
-                const block = blocks[blockId];
-                if (!block) return;
-
-                // Handle NEXT connection
-                if (block.next !== null && blockIdsToDelete.has(block.next)) {
-                    const extensionBlock = blocks[block.next];
-                    if (extensionBlock) {
-                        block.next = extensionBlock.next;
-
-                        if (extensionBlock.next !== null) {
-                            const nextBlock = blocks[extensionBlock.next];
-                            if (nextBlock) {
-                                nextBlock.parent = blockId;
+                const parentId = rootBlock.parent;
+                if (parentId && !blockIdsToDelete.has(parentId)) {
+                    const parentBlock = blocks[parentId];
+                    if (parentBlock) {
+                        if (parentBlock.next === rootBlockId) {
+                            parentBlock.next = replacementNextId;
+                            if (replacementNextId && blocks[replacementNextId]) {
+                                blocks[replacementNextId].parent = parentId;
+                                blocks[replacementNextId].topLevel = false;
+                            }
+                        }
+                        if (parentBlock.inputs) {
+                            for (const inputName in parentBlock.inputs) {
+                                const input = parentBlock.inputs[inputName];
+                                if (!input) {
+                                    continue;
+                                }
+                                if (input.block === rootBlockId) {
+                                    input.block = null;
+                                }
+                                if (input.shadow === rootBlockId) {
+                                    input.shadow = null;
+                                }
                             }
                         }
                     }
+                } else if (rootBlock.topLevel && replacementNextId && blocks[replacementNextId]) {
+                    blocks[replacementNextId].topLevel = true;
+                    blocks[replacementNextId].parent = null;
+                    target.blocks._addScript(replacementNextId);
                 }
+            }
 
-                // Handle INPUT connections
-                Object.entries(block.inputs).forEach(([_inputName, input]) => {
-                    if (input.block !== null && blockIdsToDelete.has(input.block)) {
-                        input.block = null;
-                    }
-                });
-            });
-
-            // Third pass: delete extension blocks
-            blockIdsToDelete.forEach(blockId => {
+            for (const blockId of blockIdsToDelete) {
                 const block = blocks[blockId];
-                if (!block) return;
-
+                if (!block) {
+                    continue;
+                }
                 if (block.topLevel) {
                     target.blocks._deleteScript(blockId);
                 }
-
                 delete blocks[blockId];
-            });
+                removedBlockIds.add(blockId);
+            }
 
             target.blocks.resetCache();
-        });
+        }
 
-        // Step 9: Emit event to notify the UI
-        this.runtime.emit('EXTENSION_REMOVED', { 
-            id: extensionId,
-            blockIds: Array.from(blockIdsToDelete)
+        const monitorIdsToRemove = [];
+        this.runtime._monitorState.forEach(monitorData => {
+            const opcode = monitorData.get('opcode');
+            if (typeof opcode === 'string' && opcode.startsWith(`${extensionId}_`)) {
+                monitorIdsToRemove.push(monitorData.get('id'));
+            }
         });
+        const monitorBlocks = this.runtime.monitorBlocks._blocks;
+        for (const monitorId of Object.keys(monitorBlocks)) {
+            if (ExtensionManager._isExtensionOpcode(monitorBlocks[monitorId], extensionId)) {
+                monitorIdsToRemove.push(monitorId);
+            }
+        }
+        for (const monitorId of new Set(monitorIdsToRemove)) {
+            this.runtime.requestRemoveMonitor(monitorId);
+            if (this.runtime.monitorBlocks.getBlock(monitorId)) {
+                this.runtime.monitorBlocks.deleteBlock(monitorId);
+            }
+        }
+
+        const removeExtensionOpcodes = opcodes => {
+            for (const opcode of Object.keys(opcodes)) {
+                if (opcode.startsWith(`${extensionId}_`)) {
+                    delete opcodes[opcode];
+                }
+            }
+        };
+
+        removeExtensionOpcodes(this.runtime._primitives);
+        removeExtensionOpcodes(this.runtime._hats);
+        removeExtensionOpcodes(this.runtime._flowing);
+        removeExtensionOpcodes(this.runtime.monitorBlockInfo);
+
+        if (Array.isArray(this.runtime._blockInfo)) {
+            this.runtime._blockInfo = this.runtime._blockInfo.filter(info => info.id !== extensionId);
+        }
+
+        if (this.runtime.extensionButtons && typeof this.runtime.extensionButtons.keys === 'function') {
+            const buttonIdsToDelete = [];
+            for (const buttonId of this.runtime.extensionButtons.keys()) {
+                if (buttonId.startsWith(`${extensionId}_`)) {
+                    buttonIdsToDelete.push(buttonId);
+                }
+            }
+            for (const buttonId of buttonIdsToDelete) {
+                this.runtime.extensionButtons.delete(buttonId);
+            }
+        }
+
+        if (this.runtime.extensionStorage) {
+            delete this.runtime.extensionStorage[extensionId];
+        }
+        for (const target of this.runtime.targets) {
+            if (target.extensionStorage) {
+                delete target.extensionStorage[extensionId];
+            }
+        }
+
+        delete this.runtime[`ext_${extensionId}`];
+
+        if (this.runtime.compiler && typeof this.runtime.compiler.clearExtensionCache === 'function') {
+            this.runtime.compiler.clearExtensionCache(extensionId);
+        }
+
+        const serviceName = this._loadedExtensions.get(extensionId);
+        this._loadedExtensions.delete(extensionId);
+        if (serviceName && Object.prototype.hasOwnProperty.call(dispatch.services, serviceName)) {
+            delete dispatch.services[serviceName];
+        }
+
+        const workerId = ExtensionManager._getWorkerIdFromServiceName(serviceName);
+        if (workerId !== null && !this._isWorkerIdInUse(workerId)) {
+            delete this.workerURLs[workerId];
+            delete this.pendingWorkers[workerId];
+        }
+
+        this.runtime.requestBlocksUpdate();
+        this.runtime.requestToolboxExtensionsUpdate();
+        this.runtime.emitProjectChanged();
+
+        const removalDetail = {
+            id: extensionId,
+            blockIds: Array.from(removedBlockIds)
+        };
+        this.runtime.emit('EXTENSION_REMOVED', extensionId, removalDetail);
+        return true;
     }
 
     getExtensionURLs () {
@@ -830,8 +1070,10 @@ class ExtensionManager {
                 continue;
             }
 
-            // Service names for extension workers are in the format "extension.WORKER_ID.EXTENSION_ID"
-            const workerId = +serviceName.split('.')[1];
+            const workerId = ExtensionManager._getWorkerIdFromServiceName(serviceName);
+            if (workerId === null) {
+                continue;
+            }
             const extensionURL = this.workerURLs[workerId];
             if (typeof extensionURL === 'string') {
                 extensionURLs[extensionId] = extensionURL;
@@ -841,7 +1083,9 @@ class ExtensionManager {
     }
 
     isExtensionURLLoaded (url) {
-        return Object.values(this.workerURLs).includes(url);
+        const loadedURLs = Object.values(this.workerURLs);
+        const candidates = this._getExtensionLoadCandidates(url);
+        return candidates.some(candidateURL => loadedURLs.includes(candidateURL));
     }
 }
 

@@ -773,7 +773,7 @@ class Blocks {
             } else if (!wasMonitored && block.isMonitored) {
                 // Tries to show the monitor for specified block. If it doesn't exist, add the monitor.
                 if (!this.runtime.requestShowMonitor(block.id)) {
-                    this.runtime.requestAddMonitor(MonitorRecord({
+                    this.runtime.requestAddMonitor(new MonitorRecord({
                         id: block.id,
                         targetId: block.targetId,
                         spriteName: block.targetId ? this.runtime.getTargetById(block.targetId).getName() : null,
