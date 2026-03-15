@@ -833,8 +833,13 @@ class ExtensionManager {
     /**
      * Unload an extension and remove all its blocks from the workspace
      * @param {string} extensionId - the ID of the extension to unload
+     * @param {Object} options - Optional settings
+     * @param {boolean} options.preserveBlocks - If true, keep blocks in workspace (for hot reload)
+     * @param {boolean} options.skipConfirm - If true, skip confirmation dialog
      */
-    unloadExtension (extensionId) {
+    unloadExtension (extensionId, options = {}) {
+        const { preserveBlocks = false, skipConfirm = false } = options;
+        
         if (!this.isExtensionLoaded(extensionId)) {
             return false;
         }
@@ -887,113 +892,119 @@ class ExtensionManager {
             }
         }
 
-        if (
-            allBlockIdsToDelete.size > 0 &&
-            typeof window !== 'undefined' &&
-            typeof window.confirm === 'function'
-        ) {
-            const formatMessage = require('format-message');
-            const locale = formatMessage.setup().locale || 'en';
-            const message = ExtensionManager._getRemovalConfirmMessage(locale);
-            const confirmKey = 'confirm';
-            const confirmRemoval = window[confirmKey];
-            if (typeof confirmRemoval === 'function' && !confirmRemoval.call(window, message)) {
-                return false;
-            }
-        }
-
-        for (const thread of this.runtime.threads) {
-            if (!thread || !thread.stack) {
-                continue;
-            }
-            if (thread.stack.some(blockId => allBlockIdsToDelete.has(blockId))) {
-                this.runtime._stopThread(thread);
+        // 如果 preserveBlocks 为 true，跳过所有积木删除相关逻辑
+        if (!preserveBlocks) {
+            if (
+                allBlockIdsToDelete.size > 0 &&
+                !skipConfirm &&
+                typeof window !== 'undefined' &&
+                typeof window.confirm === 'function'
+            ) {
+                const formatMessage = require('format-message');
+                const locale = formatMessage.setup().locale || 'en';
+                const message = ExtensionManager._getRemovalConfirmMessage(locale);
+                const confirmKey = 'confirm';
+                const confirmRemoval = window[confirmKey];
+                if (typeof confirmRemoval === 'function' && !confirmRemoval.call(window, message)) {
+                    return false;
+                }
             }
         }
 
         const removedBlockIds = new Set();
-        for (const plan of targetRemovalPlans) {
-            const {target, rootBlockIds, blockIdsToDelete} = plan;
-            const blocks = target.blocks._blocks;
-
-            for (const rootBlockId of rootBlockIds) {
-                const rootBlock = blocks[rootBlockId];
-                if (!rootBlock) {
+        if (!preserveBlocks) {
+            for (const thread of this.runtime.threads) {
+                if (!thread || !thread.stack) {
                     continue;
                 }
-                const replacementNextId = ExtensionManager._findNextSurvivingBlockId(
-                    blocks,
-                    rootBlock.next,
-                    blockIdsToDelete
-                );
+                if (thread.stack.some(blockId => allBlockIdsToDelete.has(blockId))) {
+                    this.runtime._stopThread(thread);
+                }
+            }
 
-                const parentId = rootBlock.parent;
-                if (parentId && !blockIdsToDelete.has(parentId)) {
-                    const parentBlock = blocks[parentId];
-                    if (parentBlock) {
-                        if (parentBlock.next === rootBlockId) {
-                            parentBlock.next = replacementNextId;
-                            if (replacementNextId && blocks[replacementNextId]) {
-                                blocks[replacementNextId].parent = parentId;
-                                blocks[replacementNextId].topLevel = false;
-                            }
-                        }
-                        if (parentBlock.inputs) {
-                            for (const inputName in parentBlock.inputs) {
-                                const input = parentBlock.inputs[inputName];
-                                if (!input) {
-                                    continue;
-                                }
-                                if (input.block === rootBlockId) {
-                                    input.block = null;
-                                }
-                                if (input.shadow === rootBlockId) {
-                                    input.shadow = null;
-                                }
-                            }
-                        }
+            for (const plan of targetRemovalPlans) {
+                const {target, rootBlockIds, blockIdsToDelete} = plan;
+                const blocks = target.blocks._blocks;
+
+                for (const rootBlockId of rootBlockIds) {
+                    const rootBlock = blocks[rootBlockId];
+                    if (!rootBlock) {
+                        continue;
                     }
-                } else if (rootBlock.topLevel && replacementNextId && blocks[replacementNextId]) {
-                    blocks[replacementNextId].topLevel = true;
-                    blocks[replacementNextId].parent = null;
-                    target.blocks._addScript(replacementNextId);
+                    const replacementNextId = ExtensionManager._findNextSurvivingBlockId(
+                        blocks,
+                        rootBlock.next,
+                        blockIdsToDelete
+                    );
+
+                    const parentId = rootBlock.parent;
+                    if (parentId && !blockIdsToDelete.has(parentId)) {
+                        const parentBlock = blocks[parentId];
+                        if (parentBlock) {
+                            if (parentBlock.next === rootBlockId) {
+                                parentBlock.next = replacementNextId;
+                                if (replacementNextId && blocks[replacementNextId]) {
+                                    blocks[replacementNextId].parent = parentId;
+                                    blocks[replacementNextId].topLevel = false;
+                                }
+                            }
+                            if (parentBlock.inputs) {
+                                for (const inputName in parentBlock.inputs) {
+                                    const input = parentBlock.inputs[inputName];
+                                    if (!input) {
+                                        continue;
+                                    }
+                                    if (input.block === rootBlockId) {
+                                        input.block = null;
+                                    }
+                                    if (input.shadow === rootBlockId) {
+                                        input.shadow = null;
+                                    }
+                                }
+                            }
+                        }
+                    } else if (rootBlock.topLevel && replacementNextId && blocks[replacementNextId]) {
+                        blocks[replacementNextId].topLevel = true;
+                        blocks[replacementNextId].parent = null;
+                        target.blocks._addScript(replacementNextId);
+                    }
                 }
+
+                for (const blockId of blockIdsToDelete) {
+                    const block = blocks[blockId];
+                    if (!block) {
+                        continue;
+                    }
+                    if (block.topLevel) {
+                        target.blocks._deleteScript(blockId);
+                    }
+                    delete blocks[blockId];
+                    removedBlockIds.add(blockId);
+                }
+
+                target.blocks.resetCache();
             }
 
-            for (const blockId of blockIdsToDelete) {
-                const block = blocks[blockId];
-                if (!block) {
-                    continue;
+            const monitorIdsToRemove = [];
+            this.runtime._monitorState.forEach(monitorData => {
+                const opcode = monitorData.get('opcode');
+                if (typeof opcode === 'string' && opcode.startsWith(`${extensionId}_`)) {
+                    monitorIdsToRemove.push(monitorData.get('id'));
                 }
-                if (block.topLevel) {
-                    target.blocks._deleteScript(blockId);
+            });
+            const monitorBlocks = this.runtime.monitorBlocks._blocks;
+            for (const monitorId of Object.keys(monitorBlocks)) {
+                if (ExtensionManager._isExtensionOpcode(monitorBlocks[monitorId], extensionId)) {
+                    monitorIdsToRemove.push(monitorId);
                 }
-                delete blocks[blockId];
-                removedBlockIds.add(blockId);
             }
-
-            target.blocks.resetCache();
-        }
-
-        const monitorIdsToRemove = [];
-        this.runtime._monitorState.forEach(monitorData => {
-            const opcode = monitorData.get('opcode');
-            if (typeof opcode === 'string' && opcode.startsWith(`${extensionId}_`)) {
-                monitorIdsToRemove.push(monitorData.get('id'));
+            for (const monitorId of new Set(monitorIdsToRemove)) {
+                this.runtime.requestRemoveMonitor(monitorId);
+                if (this.runtime.monitorBlocks.getBlock(monitorId)) {
+                    this.runtime.monitorBlocks.deleteBlock(monitorId);
+                }
             }
-        });
-        const monitorBlocks = this.runtime.monitorBlocks._blocks;
-        for (const monitorId of Object.keys(monitorBlocks)) {
-            if (ExtensionManager._isExtensionOpcode(monitorBlocks[monitorId], extensionId)) {
-                monitorIdsToRemove.push(monitorId);
-            }
-        }
-        for (const monitorId of new Set(monitorIdsToRemove)) {
-            this.runtime.requestRemoveMonitor(monitorId);
-            if (this.runtime.monitorBlocks.getBlock(monitorId)) {
-                this.runtime.monitorBlocks.deleteBlock(monitorId);
-            }
-        }
+        } // end of if (!preserveBlocks)
 
         const removeExtensionOpcodes = opcodes => {
             for (const opcode of Object.keys(opcodes)) {

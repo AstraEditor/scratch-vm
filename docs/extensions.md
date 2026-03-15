@@ -379,7 +379,7 @@ class SomeBlocks {
 
                     // Optional, default false: whether or not this block ends a stack.
                     // The "forever" and "stop all" blocks would specify true here.
-                    terminal: true,
+                    isTerminal: true,
 
                     // Optional, default false: whether or not to block all threads while
                     // this block is busy. This is for things like the "touching color"
