@@ -186,6 +186,7 @@ const loadUnsandboxedExtension = (extensionURL, vm) => new Promise((resolve, rej
     const errorHandler = event => {
         if (isResolved) return;
         const scriptSrc = event.filename || (event.target && event.target.src);
+        // 检测是不是当前扩展的错误
         if (scriptSrc === extensionURL || (event.target === script)) {
             isResolved = true;
             window.removeEventListener('error', errorHandler);
