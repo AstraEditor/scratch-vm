@@ -72,7 +72,7 @@ const createExtensionService = extensionManager => {
 };
 
 class ExtensionManager {
-    constructor (vm) {
+    constructor(vm) {
         /**
          * The ID number to provide to the next extension worker.
          * @type {int}
@@ -140,7 +140,7 @@ class ExtensionManager {
      * @param {string} extensionID - the ID of the extension.
      * @returns {boolean} - true if loaded, false otherwise.
      */
-    isExtensionLoaded (extensionID) {
+    isExtensionLoaded(extensionID) {
         return this._loadedExtensions.has(extensionID);
     }
 
@@ -150,7 +150,7 @@ class ExtensionManager {
      * @param {string} extensionId
      * @returns {boolean}
      */
-    isBuiltinExtension (extensionId) {
+    isBuiltinExtension(extensionId) {
         return Object.prototype.hasOwnProperty.call(this.builtinExtensions, extensionId);
     }
 
@@ -159,7 +159,7 @@ class ExtensionManager {
      * fail if the provided id is not does not match an internal extension.
      * @param {string} extensionId - the ID of an internal extension
      */
-    loadExtensionIdSync (extensionId) {
+    loadExtensionIdSync(extensionId) {
         if (!this.isBuiltinExtension(extensionId)) {
             log.warn(`Could not find extension ${extensionId} in the built in extensions.`);
             return;
@@ -179,18 +179,18 @@ class ExtensionManager {
         this.runtime.compilerRegisterExtension(extensionId, extensionInstance);
     }
 
-    addBuiltinExtension (extensionId, extensionClass) {
+    addBuiltinExtension(extensionId, extensionClass) {
         this.builtinExtensions[extensionId] = () => extensionClass;
     }
 
-    _normalizeExtensionInput (extensionInput) {
+    _normalizeExtensionInput(extensionInput) {
         if (typeof extensionInput !== 'string') {
             return '';
         }
         return extensionInput.trim();
     }
 
-    _resolveBuiltinExtensionId (extensionId) {
+    _resolveBuiltinExtensionId(extensionId) {
         if (!extensionId) {
             return null;
         }
@@ -207,7 +207,7 @@ class ExtensionManager {
         return null;
     }
 
-    _normalizeExtensionURL (extensionURL) {
+    _normalizeExtensionURL(extensionURL) {
         let url = this._normalizeExtensionInput(extensionURL);
         if (!url) {
             return null;
@@ -247,7 +247,7 @@ class ExtensionManager {
         return parsed.href;
     }
 
-    _getExtensionLoadCandidates (extensionInput) {
+    _getExtensionLoadCandidates(extensionInput) {
         const candidates = [];
         const add = url => {
             if (!url || candidates.includes(url)) {
@@ -275,7 +275,7 @@ class ExtensionManager {
         return candidates;
     }
 
-    _isValidExtensionURL (extensionURL) {
+    _isValidExtensionURL(extensionURL) {
         try {
             const parsedURL = new URL(extensionURL);
             return (
@@ -294,7 +294,7 @@ class ExtensionManager {
      * @param {string} extensionURL - the URL for the extension to load OR the ID of an internal extension
      * @returns {Promise} resolved once the extension is loaded and initialized or rejected on failure
      */
-    async loadExtensionURL (extensionURL, Trust) {
+    async loadExtensionURL(extensionURL, Trust) {
         const normalizedInput = this._normalizeExtensionInput(extensionURL);
         const builtinExtensionId = this._resolveBuiltinExtensionId(normalizedInput);
         if (builtinExtensionId) {
@@ -310,11 +310,23 @@ class ExtensionManager {
         let lastError = null;
         for (const candidateURL of candidates) {
             if (this.isExtensionURLLoaded(candidateURL)) {
+                document.dispatchEvent(new CustomEvent('loadExtensionDone', {
+                    detail: {
+                        state: 'error',
+                        info: 'This extension has been loaded.'
+                    }
+                }));
                 return;
             }
 
             if (!this._isValidExtensionURL(candidateURL)) {
                 lastError = new Error(`Invalid extension URL: ${candidateURL}`);
+                document.dispatchEvent(new CustomEvent('loadExtensionDone', {
+                    detail: {
+                        state: 'error',
+                        info: `Invalid extension URL: ${candidateURL}`
+                    }
+                }));
                 continue;
             }
 
@@ -332,8 +344,14 @@ class ExtensionManager {
         throw new Error(`Invalid extension URL: ${extensionURL}`);
     }
 
-    async _loadCustomExtensionURL (extensionURL, Trust) {
+    async _loadCustomExtensionURL(extensionURL, Trust) {
         if (this.isExtensionURLLoaded(extensionURL)) {
+            document.dispatchEvent(new CustomEvent('loadExtensionDone', {
+                detail: {
+                    state: 'error',
+                    info: 'This extension has been loaded.'
+                }
+            }));
             return;
         }
 
@@ -348,7 +366,7 @@ class ExtensionManager {
                 return;
             }
             if (sandboxMode === 'unsandboxed' || Trust) {
-                const {load} = require('./tw-unsandboxed-extension-runner');
+                const { load } = require('./tw-unsandboxed-extension-runner');
                 const extensionObjects = await load(rewritten, this.vm);
                 const fakeWorkerId = this.nextExtensionWorker++;
                 this.workerURLs[fakeWorkerId] = extensionURL;
@@ -381,7 +399,7 @@ class ExtensionManager {
             /* eslint-enable max-len */
 
             await new Promise((resolve, reject) => {
-                this.pendingExtensions.push({extensionURL: rewritten, resolve, reject});
+                this.pendingExtensions.push({ extensionURL: rewritten, resolve, reject });
                 dispatch.addWorker(new ExtensionWorker());
             });
         } catch (error) {
@@ -393,7 +411,7 @@ class ExtensionManager {
      * Wait until all async extensions have loaded
      * @returns {Promise} resolved when all async extensions have loaded
      */
-    allAsyncExtensionsLoaded () {
+    allAsyncExtensionsLoaded() {
         if (this.loadingAsyncExtensions === 0) {
             return;
         }
@@ -410,7 +428,7 @@ class ExtensionManager {
      * @param {string} [optExtensionId] Optional extension ID for refreshing
      * @returns {Promise} resolved once all the extensions have been reinitialized
      */
-    refreshBlocks (optExtensionId) {
+    refreshBlocks(optExtensionId) {
         const refresh = serviceName => dispatch.call(serviceName, 'getInfo')
             .then(info => {
                 info = this._prepareExtensionInfo(serviceName, info);
@@ -429,7 +447,7 @@ class ExtensionManager {
         return Promise.all(allPromises);
     }
 
-    allocateWorker () {
+    allocateWorker() {
         const id = this.nextExtensionWorker++;
         const workerInfo = this.pendingExtensions.shift();
         this.pendingWorkers[id] = workerInfo;
@@ -441,7 +459,7 @@ class ExtensionManager {
      * Synchronously collect extension metadata from the specified service and begin the extension registration process.
      * @param {string} serviceName - the name of the service hosting the extension.
      */
-    registerExtensionServiceSync (serviceName) {
+    registerExtensionServiceSync(serviceName) {
         const info = dispatch.callSync(serviceName, 'getInfo');
         this._registerExtensionInfo(serviceName, info);
     }
@@ -450,7 +468,7 @@ class ExtensionManager {
      * Collect extension metadata from the specified service and begin the extension registration process.
      * @param {string} serviceName - the name of the service hosting the extension.
      */
-    registerExtensionService (serviceName) {
+    registerExtensionService(serviceName) {
         dispatch.call(serviceName, 'getInfo')
             .then(info => {
                 if (this.isExtensionLoaded(info.id)) {
@@ -468,25 +486,37 @@ class ExtensionManager {
             });
     }
 
-    _finishedLoadingExtensionScript () {
+    _finishedLoadingExtensionScript() {
         this.loadingAsyncExtensions = Math.max(0, this.loadingAsyncExtensions - 1);
         if (this.loadingAsyncExtensions === 0) {
             this.asyncExtensionsLoadedCallbacks.forEach(i => i.resolve());
             this.asyncExtensionsLoadedCallbacks = [];
         }
+        document.dispatchEvent(new CustomEvent('loadExtensionDone', {
+            detail: {
+                state: 'success',
+                info: ''
+            }
+        }));
     }
 
-    _failedLoadingExtensionScript (error) {
+    _failedLoadingExtensionScript(error) {
         // Don't set the current extension counter to 0, otherwise it will go negative if another
         // extension finishes or fails to load.
         this.loadingAsyncExtensions = Math.max(0, this.loadingAsyncExtensions - 1);
         this.asyncExtensionsLoadedCallbacks.forEach(i => i.reject(error));
         this.asyncExtensionsLoadedCallbacks = [];
+        document.dispatchEvent(new CustomEvent('loadExtensionDone', {
+            detail: {
+                state: 'error',
+                info: error
+            }
+        }));
         // Re-throw error so the promise still rejects.
         throw error;
     }
 
-    static _getWorkerIdFromServiceName (serviceName) {
+    static _getWorkerIdFromServiceName(serviceName) {
         if (typeof serviceName !== 'string') {
             return null;
         }
@@ -506,7 +536,7 @@ class ExtensionManager {
      * @param {int} id - the worker ID.
      * @param {*?} e - the error encountered during initialization, if any.
      */
-    onWorkerInit (id, e) {
+    onWorkerInit(id, e) {
         const workerInfo = this.pendingWorkers[id];
         delete this.pendingWorkers[id];
         if (e) {
@@ -521,7 +551,7 @@ class ExtensionManager {
      * @param {object} extensionObject - the extension object to register
      * @returns {string} The name of the registered extension service
      */
-    _registerInternalExtension (extensionObject) {
+    _registerInternalExtension(extensionObject) {
         const extensionInfo = extensionObject.getInfo();
         const fakeWorkerId = this.nextExtensionWorker++;
         const serviceName = `extension_${fakeWorkerId}_${extensionInfo.id}`;
@@ -536,7 +566,7 @@ class ExtensionManager {
      * @param {ExtensionInfo} extensionInfo - the extension's metadata
      * @private
      */
-    _registerExtensionInfo (serviceName, extensionInfo) {
+    _registerExtensionInfo(serviceName, extensionInfo) {
         extensionInfo = this._prepareExtensionInfo(serviceName, extensionInfo);
         dispatch.call('runtime', '_registerExtensionPrimitives', extensionInfo).catch(e => {
             log.error(`Failed to register primitives for extension on service ${serviceName}:`, e);
@@ -551,7 +581,7 @@ class ExtensionManager {
      * @returns {ExtensionInfo} - a new extension info object with cleaned-up values
      * @private
      */
-    _prepareExtensionInfo (serviceName, extensionInfo) {
+    _prepareExtensionInfo(serviceName, extensionInfo) {
         extensionInfo = Object.assign({}, extensionInfo);
         if (!/^[a-z0-9]+$/i.test(extensionInfo.id)) {
             throw new Error('Invalid extension id');
@@ -563,12 +593,12 @@ class ExtensionManager {
             try {
                 let result;
                 switch (blockInfo) {
-                case '---': // separator
-                    result = '---';
-                    break;
-                default: // an ExtensionBlockMetadata object
-                    result = this._prepareBlockInfo(serviceName, blockInfo);
-                    break;
+                    case '---': // separator
+                        result = '---';
+                        break;
+                    default: // an ExtensionBlockMetadata object
+                        result = this._prepareBlockInfo(serviceName, blockInfo);
+                        break;
                 }
                 results.push(result);
             } catch (e) {
@@ -589,7 +619,7 @@ class ExtensionManager {
      * @returns {Array.<MenuInfo>} - a menuInfo object with all preprocessing done.
      * @private
      */
-    _prepareMenuInfo (serviceName, menus) {
+    _prepareMenuInfo(serviceName, menus) {
         const menuNames = Object.getOwnPropertyNames(menus);
         for (let i = 0; i < menuNames.length; i++) {
             const menuName = menuNames[i];
@@ -622,7 +652,7 @@ class ExtensionManager {
      * @returns {Array} menu items ready for scratch-blocks.
      * @private
      */
-    _getExtensionMenuItems (extensionObject, menuItemFunctionName) {
+    _getExtensionMenuItems(extensionObject, menuItemFunctionName) {
         // Fetch the items appropriate for the target currently being edited. This assumes that menus only
         // collect items when opened by the user while editing a particular target.
         const editingTarget = this.runtime.getEditingTarget() || this.runtime.getTargetForStage();
@@ -635,15 +665,15 @@ class ExtensionManager {
             item => {
                 item = maybeFormatMessage(item, extensionMessageContext);
                 switch (typeof item) {
-                case 'object':
-                    return [
-                        maybeFormatMessage(item.text, extensionMessageContext),
-                        item.value
-                    ];
-                case 'string':
-                    return [item, item];
-                default:
-                    return item;
+                    case 'object':
+                        return [
+                            maybeFormatMessage(item.text, extensionMessageContext),
+                            item.value
+                        ];
+                    case 'string':
+                        return [item, item];
+                    default:
+                        return item;
                 }
             });
 
@@ -660,7 +690,7 @@ class ExtensionManager {
      * @returns {ExtensionBlockMetadata} - a new block info object which has values for all relevant optional fields.
      * @private
      */
-    _prepareBlockInfo (serviceName, blockInfo) {
+    _prepareBlockInfo(serviceName, blockInfo) {
         if (blockInfo.blockType === BlockType.XML) {
             blockInfo = Object.assign({}, blockInfo);
             blockInfo.xml = String(blockInfo.xml) || '';
@@ -676,70 +706,70 @@ class ExtensionManager {
         blockInfo.text = blockInfo.text || blockInfo.opcode;
 
         switch (blockInfo.blockType) {
-        case BlockType.EVENT:
-            if (blockInfo.func) {
-                log.warn(`Ignoring function "${blockInfo.func}" for event block ${blockInfo.opcode}`);
-            }
-            break;
-        case BlockType.BUTTON:
-            if (blockInfo.opcode) {
-                log.warn(`Ignoring opcode "${blockInfo.opcode}" for button with text: ${blockInfo.text}`);
-            }
-            blockInfo.callFunc = () => {
-                dispatch.call(serviceName, blockInfo.func);
-            };
-            break;
-        case BlockType.LABEL:
-            if (blockInfo.opcode) {
-                log.warn(`Ignoring opcode "${blockInfo.opcode}" for label: ${blockInfo.text}`);
-            }
-            break;
-        default: {
-            if (!blockInfo.opcode) {
-                throw new Error('Missing opcode for block');
-            }
+            case BlockType.EVENT:
+                if (blockInfo.func) {
+                    log.warn(`Ignoring function "${blockInfo.func}" for event block ${blockInfo.opcode}`);
+                }
+                break;
+            case BlockType.BUTTON:
+                if (blockInfo.opcode) {
+                    log.warn(`Ignoring opcode "${blockInfo.opcode}" for button with text: ${blockInfo.text}`);
+                }
+                blockInfo.callFunc = () => {
+                    dispatch.call(serviceName, blockInfo.func);
+                };
+                break;
+            case BlockType.LABEL:
+                if (blockInfo.opcode) {
+                    log.warn(`Ignoring opcode "${blockInfo.opcode}" for label: ${blockInfo.text}`);
+                }
+                break;
+            default: {
+                if (!blockInfo.opcode) {
+                    throw new Error('Missing opcode for block');
+                }
 
-            const funcName = blockInfo.func || blockInfo.opcode;
+                const funcName = blockInfo.func || blockInfo.opcode;
 
-            const getBlockInfo = blockInfo.isDynamic ?
-                args => args && args.mutation && args.mutation.blockInfo :
-                () => blockInfo;
-            const callBlockFunc = (() => {
-                if (dispatch._isRemoteService(serviceName)) {
+                const getBlockInfo = blockInfo.isDynamic ?
+                    args => args && args.mutation && args.mutation.blockInfo :
+                    () => blockInfo;
+                const callBlockFunc = (() => {
+                    if (dispatch._isRemoteService(serviceName)) {
+                        return (args, util, realBlockInfo) =>
+                            dispatch.call(serviceName, funcName, args, util, realBlockInfo)
+                                .then(result => {
+                                    // Scratch is only designed to handle these types.
+                                    // If any other value comes in such as undefined, null, an object, etc.
+                                    // we'll convert it to a string to avoid undefined behavior.
+                                    if (
+                                        typeof result === 'number' ||
+                                        typeof result === 'string' ||
+                                        typeof result === 'boolean'
+                                    ) {
+                                        return result;
+                                    }
+                                    return `${result}`;
+                                });
+                    }
+
+                    // avoid promise latency if we can call direct
+                    const serviceObject = dispatch.services[serviceName];
+                    if (!serviceObject[funcName]) {
+                        // The function might show up later as a dynamic property of the service object
+                        log.warn(`Could not find extension block function called ${funcName}`);
+                    }
                     return (args, util, realBlockInfo) =>
-                        dispatch.call(serviceName, funcName, args, util, realBlockInfo)
-                            .then(result => {
-                                // Scratch is only designed to handle these types.
-                                // If any other value comes in such as undefined, null, an object, etc.
-                                // we'll convert it to a string to avoid undefined behavior.
-                                if (
-                                    typeof result === 'number' ||
-                                    typeof result === 'string' ||
-                                    typeof result === 'boolean'
-                                ) {
-                                    return result;
-                                }
-                                return `${result}`;
-                            });
-                }
+                        serviceObject[funcName](args, util, realBlockInfo);
+                })();
 
-                // avoid promise latency if we can call direct
-                const serviceObject = dispatch.services[serviceName];
-                if (!serviceObject[funcName]) {
-                    // The function might show up later as a dynamic property of the service object
-                    log.warn(`Could not find extension block function called ${funcName}`);
-                }
-                return (args, util, realBlockInfo) =>
-                    serviceObject[funcName](args, util, realBlockInfo);
-            })();
-
-            blockInfo.func = (args, util) => {
-                const realBlockInfo = getBlockInfo(args);
-                // TODO: filter args using the keys of realBlockInfo.arguments? maybe only if sandboxed?
-                return callBlockFunc(args, util, realBlockInfo);
-            };
-            break;
-        }
+                blockInfo.func = (args, util) => {
+                    const realBlockInfo = getBlockInfo(args);
+                    // TODO: filter args using the keys of realBlockInfo.arguments? maybe only if sandboxed?
+                    return callBlockFunc(args, util, realBlockInfo);
+                };
+                break;
+            }
         }
 
         return blockInfo;
@@ -749,7 +779,7 @@ class ExtensionManager {
      * Confirm message translations for extension removal
      * @private
      */
-    static _getRemovalConfirmMessage (locale) {
+    static _getRemovalConfirmMessage(locale) {
         const messages = {
             'en': 'This project is using an extension that will be removed. Do you want to continue?',
             'zh': '此项目正在使用将被移除的扩展。是否继续？',
@@ -773,7 +803,7 @@ class ExtensionManager {
         return messages[locale] || messages[locale.split('-')[0]] || messages.en;
     }
 
-    static _isExtensionOpcode (block, extensionId) {
+    static _isExtensionOpcode(block, extensionId) {
         return (
             block &&
             typeof block.opcode === 'string' &&
@@ -781,7 +811,7 @@ class ExtensionManager {
         );
     }
 
-    static _collectInputTree (blocks, startBlockId, result) {
+    static _collectInputTree(blocks, startBlockId, result) {
         if (!startBlockId || result.has(startBlockId)) {
             return;
         }
@@ -812,7 +842,7 @@ class ExtensionManager {
         }
     }
 
-    static _findNextSurvivingBlockId (blocks, startBlockId, blockIdsToDelete) {
+    static _findNextSurvivingBlockId(blocks, startBlockId, blockIdsToDelete) {
         let nextId = startBlockId;
         while (nextId && blockIdsToDelete.has(nextId)) {
             const nextBlock = blocks[nextId];
@@ -821,7 +851,7 @@ class ExtensionManager {
         return nextId || null;
     }
 
-    _isWorkerIdInUse (workerId) {
+    _isWorkerIdInUse(workerId) {
         for (const loadedServiceName of this._loadedExtensions.values()) {
             if (ExtensionManager._getWorkerIdFromServiceName(loadedServiceName) === workerId) {
                 return true;
@@ -837,9 +867,9 @@ class ExtensionManager {
      * @param {boolean} options.preserveBlocks - If true, keep blocks in workspace (for hot reload)
      * @param {boolean} options.skipConfirm - If true, skip confirmation dialog
      */
-    unloadExtension (extensionId, options = {}) {
+    unloadExtension(extensionId, options = {}) {
         const { preserveBlocks = false, skipConfirm = false } = options;
-        
+
         if (!this.isExtensionLoaded(extensionId)) {
             return false;
         }
@@ -923,7 +953,7 @@ class ExtensionManager {
             }
 
             for (const plan of targetRemovalPlans) {
-                const {target, rootBlockIds, blockIdsToDelete} = plan;
+                const { target, rootBlockIds, blockIdsToDelete } = plan;
                 const blocks = target.blocks._blocks;
 
                 for (const rootBlockId of rootBlockIds) {
@@ -1074,7 +1104,7 @@ class ExtensionManager {
         return true;
     }
 
-    getExtensionURLs () {
+    getExtensionURLs() {
         const extensionURLs = {};
         for (const [extensionId, serviceName] of this._loadedExtensions.entries()) {
             if (Object.prototype.hasOwnProperty.call(this.builtinExtensions, extensionId)) {
@@ -1093,7 +1123,7 @@ class ExtensionManager {
         return extensionURLs;
     }
 
-    isExtensionURLLoaded (url) {
+    isExtensionURLLoaded(url) {
         const loadedURLs = Object.values(this.workerURLs);
         const candidates = this._getExtensionLoadCandidates(url);
         return candidates.some(candidateURL => loadedURLs.includes(candidateURL));

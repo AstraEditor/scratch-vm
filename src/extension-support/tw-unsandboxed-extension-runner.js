@@ -181,24 +181,34 @@ const loadUnsandboxedExtension = (extensionURL, vm) => new Promise((resolve, rej
     let isResolved = false;
     const script = document.createElement('script');
 
-    // Add timeout - if extension doesn't register within 5 seconds, fail
-    const timeoutId = setTimeout(() => {
-        if (!isResolved) {
+    document.dispatchEvent(new CustomEvent('loadExtension'));
+
+    const errorHandler = event => {
+        if (isResolved) return;
+        const scriptSrc = event.filename || (event.target && event.target.src);
+        if (scriptSrc === extensionURL || (event.target === script)) {
             isResolved = true;
-            reject(new Error(`Extension did not register within 5 seconds: ${extensionURL.slice(0,100)}${extensionURL.length > 100 ? '...' : ''}. The script may have crashed or contains syntax errors.`));
+            window.removeEventListener('error', errorHandler);
+            document.dispatchEvent(new CustomEvent('loadExtensionDone', {
+                detail: {
+                    state: 'error',
+                    info: event.message || 'Unknown error'
+                }
+            }));
         }
-    }, 5000);
+    };
+    window.addEventListener('error', errorHandler);
 
     setupUnsandboxedExtensionAPI(vm).then(objects => {
         if (!isResolved) {
             isResolved = true;
-            clearTimeout(timeoutId);
+            window.removeEventListener('error', errorHandler);
             resolve(objects);
         }
     }).catch(error => {
         if (!isResolved) {
             isResolved = true;
-            clearTimeout(timeoutId);
+            window.removeEventListener('error', errorHandler);
             reject(error);
         }
     });
@@ -206,13 +216,17 @@ const loadUnsandboxedExtension = (extensionURL, vm) => new Promise((resolve, rej
     script.onerror = () => {
         if (!isResolved) {
             isResolved = true;
-            clearTimeout(timeoutId);
-            reject(new Error(`Error loading unsandboxed script ${extensionURL.slice(0,100)}${extensionURL.length > 100 ? '...' : ''}. Check the console for more information.`));
+            window.removeEventListener('error', errorHandler);
+            document.dispatchEvent(new CustomEvent('loadExtensionDone', {
+                detail: {
+                    state: 'error',
+                    info: `Error loading unsandboxed script ${extensionURL.slice(0, 100)}${extensionURL.length > 100 ? '...' : ''}. Check the console for more information.`
+                }
+            }));
         }
     };
     script.onload = () => {
         // Script loaded successfully, waiting for extension to call Scratch.extensions.register()
-        // The 15 second timeout will handle cases where the script doesn't register
     };
     script.src = extensionURL;
     document.body.appendChild(script);
