@@ -109,6 +109,7 @@ const loadProject = function () {
     if (id.length < 1 || !isFinite(id)) {
         id = projectInput.value;
     }
+    console.log(id)
     getProjectData(id).then(data => Scratch.vm.loadProject(data));
     return id;
 };

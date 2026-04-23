@@ -19,7 +19,7 @@
     "i18n:push": "tx-push-src scratch-editor extensions translations/core/en.json",
     "lint": "eslint .",
     "prepublish": "in-publish && npm run build || not-in-publish",
-    "start": "webpack-dev-server",
+    "start": "webpack serve",
     "tap": "tap ./test/{unit,integration}/*.js",
     "tap:unit": "tap ./test/unit/*.js",
     "tap:integration": "tap ./test/integration/*.js",
@@ -38,7 +38,6 @@
     "@turbowarp/jszip": "^3.11.0",
     "@turbowarp/nanolog": "^0.2.0",
     "@vernier/godirect": "1.5.0",
-    "arraybuffer-loader": "^1.0.6",
     "atob": "2.1.2",
     "btoa": "1.2.1",
     "canvas-toBlob": "1.0.0",
@@ -51,8 +50,7 @@
     "scratch-sb1-converter": "0.2.7",
     "scratch-translate-extension-languages": "^1.0.7",
     "text-encoding": "0.7.0",
-    "uuid": "8.3.2",
-    "worker-loader": "^1.1.1"
+    "uuid": "8.3.2"
   },
   "peerDependencies": {
     "@turbowarp/scratch-svg-renderer": "^1.0.0-202312300007-62fe825"
@@ -63,13 +61,14 @@
     "adm-zip": "0.4.11",
     "babel-eslint": "10.1.0",
     "babel-loader": "8.2.2",
+    "buffer": "^6.0.3",
     "callsite": "1.0.0",
-    "copy-webpack-plugin": "4.5.4",
+    "copy-webpack-plugin": "11.0.0",
     "docdash": "1.2.0",
     "eslint": "8.55.0",
     "eslint-config-scratch": "9.0.3",
-    "expose-loader": "0.7.5",
-    "file-loader": "2.0.0",
+    "expose-loader": "3.1.0",
+    "file-loader": "6.2.0",
     "format-message-cli": "6.2.0",
     "in-publish": "2.0.1",
     "js-md5": "0.7.3",
@@ -83,14 +82,14 @@
     "scratch-render": "0.1.0-prerelease.20231220210403",
     "scratch-render-fonts": "github:TurboWarp/scratch-render-fonts#master",
     "scratch-storage": "2.3.1",
-    "script-loader": "0.7.2",
     "stats.js": "0.17.0",
     "tap": "16.2.0",
+    "terser-webpack-plugin": "5.3.14",
     "tiny-worker": "2.3.0",
-    "uglifyjs-webpack-plugin": "1.2.7",
-    "webpack": "4.47.0",
-    "webpack-cli": "3.1.0",
-    "webpack-dev-server": "3.11.2"
+    "webpack": "5.106.2",
+    "webpack-cli": "5.1.4",
+    "webpack-dev-server": "4.15.2",
+    "worker-loader": "3.0.8"
   },
   "private": true
 }
