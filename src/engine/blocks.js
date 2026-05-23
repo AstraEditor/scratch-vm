@@ -27,6 +27,14 @@ class Blocks {
         this.runtime = runtime;
 
         /**
+         * Suppress project changed events during batch operations.
+         * When true, emitProjectChanged() will be a no-op.
+         * @type {boolean}
+         * @private
+         */
+        this._suppressProjectChanged = false;
+
+        /**
          * All blocks in the workspace.
          * Keys are block IDs, values are metadata about the block.
          * @type {Object.<string, Object>}
@@ -631,9 +639,26 @@ class Blocks {
      * that can affect the project state.
      */
     emitProjectChanged () {
-        if (!this.forceNoGlow) {
+        if (!this.forceNoGlow && !this._suppressProjectChanged) {
             this.runtime.emitProjectChanged();
         }
+    }
+
+    /**
+     * Suppress project changed events during batch operations.
+     * Call resumeProjectChanged() when done to emit a single event.
+     */
+    suppressProjectChanged () {
+        this._suppressProjectChanged = true;
+    }
+
+    /**
+     * Resume project changed events after batch operations.
+     * Emits a single project changed event if any changes were made.
+     */
+    resumeProjectChanged () {
+        this._suppressProjectChanged = false;
+        this.runtime.emitProjectChanged();
     }
 
     /**
@@ -899,8 +924,9 @@ class Blocks {
      * Block management: delete blocks and their associated scripts. Does nothing if a block
      * with the given ID does not exist.
      * @param {!string} blockId Id of block to delete
+     * @param {boolean} [emit=true] Need emit project changed
      */
-    deleteBlock (blockId) {
+    deleteBlock (blockId, emit = true) {
         // @todo In runtime, stop threads running on this script.
 
         // Get block
@@ -910,21 +936,21 @@ class Blocks {
             return;
         }
 
-        // Delete children
+        // Delete children (pass emit=false to avoid redundant events)
         if (block.next !== null) {
-            this.deleteBlock(block.next);
+            this.deleteBlock(block.next, false);
         }
 
         // Delete inputs (including branches)
         for (const input in block.inputs) {
             // If it's null, the block in this input moved away.
             if (block.inputs[input].block !== null) {
-                this.deleteBlock(block.inputs[input].block);
+                this.deleteBlock(block.inputs[input].block, false);
             }
             // Delete obscured shadow blocks.
             if (block.inputs[input].shadow !== null &&
                 block.inputs[input].shadow !== block.inputs[input].block) {
-                this.deleteBlock(block.inputs[input].shadow);
+                this.deleteBlock(block.inputs[input].shadow, false);
             }
         }
 
@@ -935,13 +961,14 @@ class Blocks {
         delete this._blocks[blockId];
 
         this.resetCache();
-        this.emitProjectChanged();
+        if (emit) this.emitProjectChanged();
     }
 
     /**
      * Delete all blocks and their associated scripts.
      */
     deleteAllBlocks () {
+        console.log(this._blocks);
         const blockIds = Object.keys(this._blocks);
         blockIds.forEach(blockId => this.deleteBlock(blockId));
     }
