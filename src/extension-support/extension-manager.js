@@ -294,7 +294,9 @@ class ExtensionManager {
      * @param {string} extensionURL - the URL for the extension to load OR the ID of an internal extension
      * @returns {Promise} resolved once the extension is loaded and initialized or rejected on failure
      */
-    async loadExtensionURL(extensionURL, Trust) {
+    async loadExtensionURL(extensionURL, isTrust) {
+        const Trust = isTrust || localStorage.getItem("IM_SURE_IT_WONT_BREAK_MY_PROJECT")
+        localStorage.removeItem("IM_SURE_IT_WONT_BREAK_MY_PROJECT");
         const normalizedInput = this._normalizeExtensionInput(extensionURL);
         const builtinExtensionId = this._resolveBuiltinExtensionId(normalizedInput);
         if (builtinExtensionId) {
