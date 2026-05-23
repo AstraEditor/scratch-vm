@@ -695,6 +695,12 @@ const serializeMonitors = function (monitors, runtime, extensions) {
 const serialize = function (runtime, targetId, {allowOptimization = true} = {}) {
     // Fetch targets
     const obj = Object.create(null);
+
+    // 创建一个ID, 用于在部分功能中进行检测作品唯一性
+    if (!targetId) {
+        Object.assign(obj, runtime.getProjectMetadata());
+    }
+
     // Create extension set to hold extension ids found while serializing targets
     const extensions = new Set();
 
@@ -1491,7 +1497,7 @@ const checkPlatformCompatibility = (json, runtime) => {
     }
 
     const projectPlatform = json.meta.platform.name;
-    if (projectPlatform === runtime.platform.name || projectPlatform === "TurboWarp") {
+    if (projectPlatform === runtime.platform.name || projectPlatform === 'TurboWarp') {
         return;
     }
 
@@ -1525,6 +1531,11 @@ const deserialize = async function (json, runtime, zip, isSingleSprite) {
         extensionIDs: new Set(),
         extensionURLs: new Map()
     };
+
+    // 读取作品级自定义元数据；导入角色时不能覆盖当前作品的元数据
+    if (!isSingleSprite) {
+        runtime.loadProjectMetadata(json);
+    }
 
     // Store the origin field (e.g. project originated at CSFirst) so that we can save it again.
     if (json.meta && json.meta.origin) {
