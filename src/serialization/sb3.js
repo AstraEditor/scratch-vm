@@ -197,6 +197,7 @@ const serializeBlock = function (block) {
     if (serializedPrimitive) return serializedPrimitive;
     // If serializedPrimitive is null, proceed with serializing a non-primitive block
     const obj = Object.create(null);
+    obj.id = block.id;
     obj.opcode = block.opcode;
     // NOTE: this is extremely important to serialize even if null;
     // not serializing `next: null` results in strange behavior with block
@@ -1042,7 +1043,7 @@ const deserializeBlocks = function (blocks) {
             deserializeInputDesc(block, null, false, blocks);
             continue;
         }
-        block.id = blockId; // add id back to block since it wasn't serialized
+        block.id = block.id || blockId;
         block.inputs = deserializeInputs(block.inputs, blockId, blocks);
         block.fields = deserializeFields(block.fields);
     }
