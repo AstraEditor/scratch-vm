@@ -1,2 +1,5 @@
+allowBuilds:
+  core-js: true
+  es5-ext: true
 blockExoticSubdeps: false
 shamefullyHoist: true
