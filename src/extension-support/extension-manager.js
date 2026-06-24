@@ -312,12 +312,6 @@ class ExtensionManager {
         let lastError = null;
         for (const candidateURL of candidates) {
             if (this.isExtensionURLLoaded(candidateURL)) {
-                document.dispatchEvent(new CustomEvent('loadExtensionDone', {
-                    detail: {
-                        state: 'error',
-                        info: 'This extension has been loaded.'
-                    }
-                }));
                 return;
             }
 
@@ -348,12 +342,6 @@ class ExtensionManager {
 
     async _loadCustomExtensionURL(extensionURL, Trust) {
         if (this.isExtensionURLLoaded(extensionURL)) {
-            document.dispatchEvent(new CustomEvent('loadExtensionDone', {
-                detail: {
-                    state: 'error',
-                    info: 'This extension has been loaded.'
-                }
-            }));
             return;
         }
 
